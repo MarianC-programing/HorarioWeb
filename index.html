@@ -150,7 +150,7 @@
   }
   .sec-row{
     padding:10px 14px; border-top:1px solid var(--border); font-size:13px;
-    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
   }
   .sec-row .meta{color:var(--muted); font-size:12px;}
   .tag{
@@ -163,7 +163,8 @@
   .review-item{
     border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; background:#FBFCFE;
   }
-  .review-item .rev-head{display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-bottom:10px;}
+  .review-item .rev-head{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px;}
+  .review-item .rev-head .rv-materia{grid-column:1/-1;}
   .review-item .rev-head input{
     padding:8px 9px; border:1px solid var(--border); border-radius:7px; font-size:13px; font-family:'Inter'; background:#fff;
   }
@@ -220,6 +221,39 @@
   .empty-state .big{font-size:34px; margin-bottom:8px;}
   .note{
     font-size:12px; color:var(--muted); background:#F7F9FC; border-radius:8px; padding:10px 12px; margin-top:14px;
+  }
+
+  .table-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+  /* ---------- Responsive (teléfono) ---------- */
+  @media (max-width: 640px){
+    header.top{ padding:22px 16px 54px; }
+    header.top h1{ font-size:21px; }
+    header.top p{ font-size:13px; }
+    .wrap{ padding:0 12px; }
+    .card{ padding:16px; }
+
+    .form-grid{ grid-template-columns:1fr; }
+
+    .block-row{
+      grid-template-columns:1fr 1fr;
+      align-items:end;
+    }
+    .block-row .mini-btn{ grid-column:1/-1; justify-self:end; }
+
+    .rev-block-row{
+      grid-template-columns:1fr 1fr;
+      align-items:end;
+    }
+    .rev-block-row .mini-btn{ grid-column:1/-1; justify-self:end; }
+
+    .review-item .rev-head{ grid-template-columns:1fr; }
+
+    .sec-row{ font-size:12.5px; }
+
+    table.grid-table{ min-width:640px; font-size:11px; }
+    .combo-nav{ flex-wrap:wrap; gap:8px; }
+    .combo-pill{ order:3; width:100%; text-align:center; }
   }
 </style>
 </head>
@@ -499,9 +533,110 @@ document.getElementById("detectBtn").addEventListener("click", ()=>{
     alert("No se reconoció una tabla con el formato esperado. Revisa el cuadro amarillo debajo del botón: muestra las filas que el sistema sí pudo leer, cópialas y compártelas para ajustar la detección.");
     return;
   }
+  const legend = extractLegend(lastWords);
+  const filledCount = applyLegendToSections(detected, legend);
   debugBox.style.display = "none";
-  showReview(detected);
+  showReview(detected, filledCount);
 });
+
+// ---------- Tabla de leyenda: ASIGNATURA / CODASIG / CODHORA / PROFESOR / CORREO ----------
+// El horario oficial suele traer, debajo de la cuadrícula, una segunda tabla que mapea cada
+// materia a su profesor y código. La leemos y la cruzamos por nombre de materia para
+// autocompletar esos campos sin que el usuario tenga que escribirlos a mano.
+const LEGEND_HEADER_KEYWORDS = ["ASIGNATURA","CODASIG","CODHORA","PROFESOR","CORREO"];
+function normMateria(s){
+  return stripAccents(s).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+}
+
+// Detecta la fila de encabezado de la tabla de leyenda (ASIGNATURA/CODASIG/CODHORA/PROFESOR/CORREO).
+// Se reutiliza en dos lugares: para saber dónde EMPIEZA la leyenda (extractLegend) y para saber
+// dónde TERMINA la cuadrícula principal de horario (parseGridFromWords), y así no confundir
+// filas de una tabla con la otra (que era la causa de que un código de horario o un correo de
+// profesor terminara metido dentro del nombre de una materia).
+function findLegendHeaderRow(rows){
+  function keywordMatchesInRow(row){
+    const found = [];
+    const seen = new Set();
+    row.words.forEach(w=>{
+      const t = normWord(w.text);
+      LEGEND_HEADER_KEYWORDS.forEach(k=>{
+        if(seen.has(k)) return;
+        const kNorm = normWord(k);
+        if(t.length>=4 && (t===kNorm || kNorm.startsWith(t) || t.startsWith(kNorm))){
+          seen.add(k);
+          found.push({ keyword:k, cx: (w.bbox.x0+w.bbox.x1)/2 });
+        }
+      });
+    });
+    return found;
+  }
+  let headerRow=null, headerCols=null, bestScore=0;
+  rows.forEach(r=>{
+    const m = keywordMatchesInRow(r);
+    if(m.length>bestScore){ bestScore=m.length; headerRow=r; headerCols=m; }
+  });
+  if(!headerRow || bestScore<2) return null; // se necesita al menos 2 columnas reconocibles (ej. ASIGNATURA + PROFESOR)
+  return { headerRow, headerCols };
+}
+
+function extractLegend(words){
+  if(!words || words.length===0) return {};
+  const rows = clusterRows(words);
+
+  const found = findLegendHeaderRow(rows);
+  if(!found) return {};
+  const { headerRow, headerCols } = found;
+
+  const columns = [...headerCols].sort((a,b)=>a.cx-b.cx);
+  function colFor(x){
+    let bi=0, bestDist=Infinity;
+    columns.forEach((c,i)=>{ const d=Math.abs(c.cx-x); if(d<bestDist){bestDist=d; bi=i;} });
+    return columns[bi].keyword;
+  }
+
+  const dataRows = rows.filter(r=> r.cy > headerRow.cy + 5);
+  const legend = {};
+  dataRows.forEach(r=>{
+    const byCol = {};
+    r.words.forEach(w=>{
+      const col = colFor((w.bbox.x0+w.bbox.x1)/2);
+      (byCol[col] ??= []).push(w);
+    });
+    const asigWords = (byCol["ASIGNATURA"]||[]).sort((a,b)=>a.bbox.x0-b.bbox.x0);
+    const profWords = (byCol["PROFESOR"]||[]).sort((a,b)=>a.bbox.x0-b.bbox.x0);
+    const codhoraWords = (byCol["CODHORA"]||[]).sort((a,b)=>a.bbox.x0-b.bbox.x0);
+    const asignatura = asigWords.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    const profesor = profWords.map(w=>w.text).join(' ').replace(/\s+/g,' ').trim();
+    const codigo = codhoraWords.map(w=>w.text).join('').trim();
+    if(asignatura.length>=2){
+      legend[normMateria(asignatura)] = { profesor, codigo };
+    }
+  });
+  return legend;
+}
+
+// Cruza cada sección detectada con la leyenda por nombre de materia (exacto primero,
+// y si no, por coincidencia parcial única) y llena profesor/código si estaban vacíos.
+function applyLegendToSections(sectionsDetected, legend){
+  const keys = Object.keys(legend);
+  if(keys.length===0) return 0;
+  let filled = 0;
+  sectionsDetected.forEach(s=>{
+    const key = normMateria(s.materia);
+    let entry = legend[key];
+    if(!entry){
+      const candidates = keys.filter(k => k.includes(key) || key.includes(k));
+      if(candidates.length===1) entry = legend[candidates[0]];
+    }
+    if(entry){
+      let changed = false;
+      if(!s.profesor && entry.profesor){ s.profesor = entry.profesor; changed = true; }
+      if(!s.codigo && entry.codigo){ s.codigo = entry.codigo; changed = true; }
+      if(changed) filled++;
+    }
+  });
+  return filled;
+}
 
 // ---------- Motor de detección de tabla ----------
 const DAY_LOOKUP = {
@@ -655,23 +790,44 @@ function parseGridFromWords(words){
     return columns[bi].day;
   }
 
-  // 2) filas de datos: las que están debajo del encabezado y cuya primera palabra es una etiqueta de hora
-  const dataRows = rows.filter(r => r.cy > headerRow.cy + 10);
-  const blocks = [];
-  let currentTimeLabel = null;
+  // 2) filas de datos: las que están debajo del encabezado. Cada "grupo" empieza en una
+  // fila con hora reconocible y absorbe las filas siguientes que NO tengan hora propia —
+  // esas suelen ser una segunda línea dentro de la misma celda (ej. "AULA: X-XXX" debajo
+  // del nombre de la materia). Sin esto, esa segunda línea se perdía por completo.
+  //
+  // IMPORTANTE: se corta ANTES de la tabla de leyenda (ASIGNATURA/CODASIG/CODHORA/PROFESOR/CORREO)
+  // si aparece más abajo en el mismo documento. Sin este límite, filas de esa segunda tabla
+  // (que tampoco tienen "hora" propia) se absorbían como si fueran continuación de la última
+  // celda de la cuadrícula, colando códigos de horario o correos de profesores dentro del
+  // nombre de la materia.
+  const legendBoundary = findLegendHeaderRow(rows);
+  const gridRows = legendBoundary
+    ? rows.filter(r => r.cy < legendBoundary.headerRow.cy - 5)
+    : rows;
+  const dataRows = gridRows.filter(r => r.cy > headerRow.cy + 10);
   const skippedRows = [];
+  const rowGroups = [];
+  let currentGroup = null;
+  const MAX_CONTINUATION_LINES = 1; // seguridad extra: una celda normal tiene a lo sumo "materia" + "aula"
 
   dataRows.forEach(r=>{
     const leftWords = r.words.filter(w => w.bbox.x0 < firstColLeft + 160);
     const joinedLeft = leftWords.map(w=>w.text).join('');
     const timeLabel = parseTimeLabel(joinedLeft) || parseTimeLabel(r.words.map(w=>w.text).join(''));
-    if(!timeLabel){
+    if(timeLabel){
+      currentGroup = { timeLabel, words: [...r.words], continuations: 0 };
+      rowGroups.push(currentGroup);
+    } else if(currentGroup && currentGroup.continuations < MAX_CONTINUATION_LINES){
+      currentGroup.words.push(...r.words); // continuación de la celda anterior
+      currentGroup.continuations++;
+    } else {
       skippedRows.push(r.words.map(w=>w.text).join(' '));
-      return;
     }
-    currentTimeLabel = timeLabel;
+  });
 
-    const rightWords = r.words.filter(w => w.bbox.x0 >= firstColLeft + 100 && !matchDay(w.text));
+  const blocks = [];
+  rowGroups.forEach(group=>{
+    const rightWords = group.words.filter(w => w.bbox.x0 >= firstColLeft + 100 && !matchDay(w.text));
     const byCol = {};
     rightWords.forEach(w=>{
       const day = colForX((w.bbox.x0+w.bbox.x1)/2);
@@ -682,7 +838,7 @@ function parseGridFromWords(words){
       const cellText = ws.map(w=>w.text).join(' ');
       const parsed = parseCellText(cellText);
       if(parsed){
-        blocks.push({ dia: day, inicio: currentTimeLabel.inicio, fin: currentTimeLabel.fin, ...parsed });
+        blocks.push({ dia: day, inicio: group.timeLabel.inicio, fin: group.timeLabel.fin, ...parsed });
       }
     });
   });
@@ -768,6 +924,7 @@ function syncReviewFromDOM(){
     s.materia = item.querySelector(".rv-materia").value.trim().toUpperCase();
     s.seccion = item.querySelector(".rv-seccion").value.trim();
     s.codigo = item.querySelector(".rv-codigo").value.trim();
+    s.profesor = item.querySelector(".rv-profesor").value.trim();
     const blockRows = item.querySelectorAll(".rev-block-row");
     s.blocks = [...blockRows].map(r=>({
       dia: r.querySelector(".rv-dia").value,
@@ -778,11 +935,15 @@ function syncReviewFromDOM(){
   });
 }
 
-function showReview(detected){
+function showReview(detected, filledCount){
   reviewData = detected;
   document.getElementById("reviewCard").style.display = "block";
   document.getElementById("acceptReviewBtn").style.display = "inline-block";
-  document.getElementById("reviewSub").textContent = `Se detectaron ${detected.length} sección(es). Revisa nombres, días, horas y aulas antes de agregarlas — el OCR puede equivocarse.`;
+  let msg = `Se detectaron ${detected.length} sección(es). Revisa nombres, días, horas y aulas antes de agregarlas — el OCR puede equivocarse.`;
+  if(filledCount>0){
+    msg += ` Se autocompletaron profesor/código en ${filledCount} sección(es) usando la tabla de asignaturas del documento.`;
+  }
+  document.getElementById("reviewSub").textContent = msg;
   renderReview();
   document.getElementById("reviewCard").scrollIntoView({behavior:'smooth', block:'start'});
 }
@@ -802,6 +963,7 @@ function renderReview(){
         <input class="rv-materia" value="${s.materia}" placeholder="Materia">
         <input class="rv-seccion" value="${s.seccion}" placeholder="Sección">
         <input class="rv-codigo" value="${s.codigo}" placeholder="Código (opcional)">
+        <input class="rv-profesor" value="${s.profesor||''}" placeholder="Profesor (opcional)">
       </div>
       ${s.blocks.map((b, bi)=>`
         <div class="rev-block-row" data-bi="${bi}">
@@ -1087,7 +1249,7 @@ function renderComboGrid(combo){
   // build hour rows from all blocks (unique start-end)
   const allBlocks = combo.flatMap(s=>s.blocks.map(b=>({...b, materia:s.materia, seccion:s.seccion})));
   const hourSet = [...new Set(allBlocks.map(b=>`${b.inicio}-${b.fin}`))].sort();
-  let html = `<table class="grid-table"><thead><tr><th>Hora</th>${DAYS.map(d=>`<th>${d}</th>`).join('')}</tr></thead><tbody>`;
+  let html = `<div class="table-scroll"><table class="grid-table"><thead><tr><th>Hora</th>${DAYS.map(d=>`<th>${d}</th>`).join('')}</tr></thead><tbody>`;
   hourSet.forEach(h=>{
     const [ini,fin] = h.split("-");
     html += `<tr><td class="hourcol">${ini}<br>${fin}</td>`;
@@ -1104,7 +1266,7 @@ function renderComboGrid(combo){
     });
     html += `</tr>`;
   });
-  html += `</tbody></table>`;
+  html += `</tbody></table></div>`;
   return html;
 }
 function renderComboList(combo){
