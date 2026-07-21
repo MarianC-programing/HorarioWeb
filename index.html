@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cruza Horarios · UTP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+<style>
+  :root{
+    --bg:#F2F4F9;
+    --surface:#FFFFFF;
+    --navy:#16233F;
+    --steel:#435374;
+    --amber:#E3A008;
+    --amber-soft:#FCEDC7;
+    --green:#2F7D5C;
+    --green-soft:#E1F3EA;
+    --red:#C0392B;
+    --red-soft:#FBE6E3;
+    --border:#DDE2EC;
+    --muted:#7381A0;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--navy);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  header.top{
+    background:var(--navy);
+    color:#fff;
+    padding:28px 20px 74px;
+    position:relative;
+    overflow:hidden;
+  }
+  header.top::after{
+    content:"";
+    position:absolute; right:-60px; top:-60px;
+    width:220px;height:220px;border-radius:50%;
+    background:radial-gradient(circle, rgba(227,160,8,.35), transparent 70%);
+  }
+  .top-inner{max-width:960px;margin:0 auto;position:relative;}
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--amber); margin-bottom:10px;
+  }
+  header.top h1{font-size:28px; line-height:1.25; max-width:600px;}
+  header.top p{color:#B9C3DA; max-width:520px; margin-top:10px; font-size:14.5px; line-height:1.5;}
+
+  .wrap{max-width:960px; margin:24px auto 60px; padding:0 20px;}
+
+  .stepper{
+    display:flex; gap:8px; background:var(--surface);
+    border-radius:14px; padding:6px; box-shadow:0 10px 30px -14px rgba(22,35,63,.25);
+    margin-bottom:22px; border:1px solid var(--border);
+    flex-wrap:wrap;
+  }
+  .step-btn{
+    flex:1 1 140px; border:none; background:transparent; padding:12px 6px;
+    border-radius:10px; cursor:pointer; font-family:'Inter'; font-weight:600;
+    font-size:13px; color:var(--muted); display:flex; align-items:center; justify-content:center; gap:6px;
+    transition:.15s; white-space:nowrap; min-width:0;
+  }
+  .step-btn .label{
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .step-btn .num{
+    width:20px;height:20px;border-radius:50%; background:var(--border); color:var(--steel);
+    display:flex; align-items:center; justify-content:center; font-size:11px; font-family:'IBM Plex Mono';
+  }
+  .step-btn.active{background:var(--navy); color:#fff;}
+  .step-btn.active .num{background:var(--amber); color:var(--navy);}
+
+  @media (max-width: 520px){
+    .stepper{ flex-direction:column; }
+    .step-btn{ justify-content:flex-start; width:100%; }
+  }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:22px; margin-bottom:18px;
+  }
+  .card h2{font-size:18px; margin-bottom:4px;}
+  .card .sub{color:var(--muted); font-size:13.5px; margin-bottom:16px;}
+
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  /* OCR box */
+  .ocr-box{
+    border:1.5px dashed var(--border); border-radius:12px; padding:18px; text-align:center;
+    background:#FBFCFE;
+  }
+  .ocr-box input[type=file]{display:none;}
+  .upload-btn{
+    display:inline-block; background:var(--navy); color:#fff; padding:10px 18px;
+    border-radius:9px; font-weight:600; font-size:13.5px; cursor:pointer;
+  }
+  #ocrStatus{font-size:12.5px; color:var(--muted); margin-top:10px;}
+  #ocrText{
+    width:100%; min-height:120px; margin-top:12px; font-family:'IBM Plex Mono',monospace;
+    font-size:12px; padding:10px; border-radius:8px; border:1px solid var(--border); resize:vertical;
+    display:none; background:#fff;
+  }
+
+  /* Form */
+  .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .field{display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:12px; font-weight:600; color:var(--steel);}
+  .field input, .field select{
+    padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-size:13.5px;
+    font-family:'Inter'; background:#fff;
+  }
+  .blocks-list{margin-top:10px; display:flex; flex-direction:column; gap:8px;}
+  .block-row{
+    display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr auto; gap:8px; align-items:end;
+    background:#FBFCFE; border:1px solid var(--border); padding:10px; border-radius:10px;
+  }
+  .mini-btn{
+    border:none; background:var(--red-soft); color:var(--red); width:32px;height:32px;border-radius:8px;
+    cursor:pointer; font-size:15px; font-weight:700;
+  }
+  .add-block-btn{
+    margin-top:8px; border:1px dashed var(--steel); background:none; color:var(--steel);
+    padding:8px 12px; border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:600;
+  }
+  .save-btn{
+    margin-top:16px; background:var(--amber); color:var(--navy); border:none; padding:11px 20px;
+    border-radius:9px; font-weight:700; cursor:pointer; font-size:14px;
+  }
+  .save-btn:hover{filter:brightness(0.96);}
+
+  /* course list */
+  .subj-group{border:1px solid var(--border); border-radius:12px; margin-bottom:10px; overflow:hidden;}
+  .subj-head{
+    background:#F7F9FC; padding:10px 14px; font-weight:700; font-size:13.5px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .sec-row{
+    padding:10px 14px; border-top:1px solid var(--border); font-size:13px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+  }
+  .sec-row .meta{color:var(--muted); font-size:12px;}
+  .tag{
+    font-family:'IBM Plex Mono'; font-size:11px; background:var(--amber-soft); color:#8a6300;
+    padding:2px 7px; border-radius:6px; margin-right:6px;
+  }
+  .del-link{border:none; background:none; color:var(--red); cursor:pointer; font-size:12px; font-weight:600;}
+
+  /* review (auto-detección) */
+  .review-item{
+    border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; background:#FBFCFE;
+  }
+  .review-item .rev-head{display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-bottom:10px;}
+  .review-item .rev-head input{
+    padding:8px 9px; border:1px solid var(--border); border-radius:7px; font-size:13px; font-family:'Inter'; background:#fff;
+  }
+  .rev-block-row{
+    display:grid; grid-template-columns:1.1fr 1fr 1fr 1fr auto; gap:6px; align-items:center; margin-bottom:6px;
+  }
+  .rev-block-row select, .rev-block-row input{
+    padding:6px 7px; border:1px solid var(--border); border-radius:6px; font-size:12px;
+  }
+  .rev-discard{font-size:11.5px; color:var(--red); background:none; border:none; cursor:pointer; font-weight:600;}
+  .low-confidence{border-color:var(--amber); background:var(--amber-soft);}
+
+  /* filters */
+  .chips{display:flex; flex-wrap:wrap; gap:8px;}
+  .chip{
+    border:1.5px solid var(--border); padding:8px 14px; border-radius:999px; font-size:13px;
+    cursor:pointer; background:#fff; font-weight:600; color:var(--steel);
+  }
+  .chip.on{background:var(--navy); border-color:var(--navy); color:#fff;}
+  .turno-row{display:flex; gap:8px; margin-top:8px;}
+
+  .gen-btn{
+    margin-top:20px; width:100%; background:var(--navy); color:#fff; border:none; padding:14px;
+    border-radius:11px; font-weight:700; font-size:14.5px; cursor:pointer;
+  }
+
+  /* results */
+  .combo-nav{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .combo-nav button{
+    background:var(--navy); color:#fff; border:none; width:34px; height:34px; border-radius:8px;
+    cursor:pointer; font-size:15px;
+  }
+  .combo-nav button:disabled{opacity:.3; cursor:default;}
+  .combo-pill{
+    font-family:'IBM Plex Mono'; font-size:12.5px; background:var(--green-soft); color:var(--green);
+    padding:6px 14px; border-radius:999px; font-weight:600;
+  }
+  table.grid-table{width:100%; border-collapse:collapse; font-size:11.5px;}
+  table.grid-table th{
+    background:var(--navy); color:#fff; padding:8px 4px; font-size:10.5px; font-weight:600;
+  }
+  table.grid-table td{
+    border:1px solid var(--border); padding:5px 4px; vertical-align:top; height:40px; text-align:center;
+  }
+  .cell-block{
+    border-radius:6px; padding:4px; font-size:10.5px; line-height:1.25;
+  }
+  .cell-block .m{font-weight:700;}
+  .cell-block .a{color:var(--muted); font-size:9.5px;}
+  .hourcol{font-family:'IBM Plex Mono'; font-size:10px; color:var(--steel); white-space:nowrap;}
+  .empty-state{
+    text-align:center; padding:40px 10px; color:var(--muted); font-size:13.5px;
+  }
+  .empty-state .big{font-size:34px; margin-bottom:8px;}
+  .note{
+    font-size:12px; color:var(--muted); background:#F7F9FC; border-radius:8px; padding:10px 12px; margin-top:14px;
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="eyebrow">Choque de Horarios · sin backend, todo corre en tu navegador</div>
+    <h1>Arma tu horario sin choques, sección por sección.</h1>
+    <p>Carga tus opciones de secciones (a mano, o con ayuda de OCR desde una captura o preferiblemnete un PDF), elige tus materias y turno preferido, y revisa cada combinación válida como si fuera tu propio HorarioGrupo.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="stepper">
+    <button class="step-btn active" data-step="1"><span class="num">1</span><span class="label">Cursos disponibles</span></button>
+    <button class="step-btn" data-step="2"><span class="num">2</span><span class="label">Elegir materias</span></button>
+    <button class="step-btn" data-step="3"><span class="num">3</span><span class="label">Combinaciones</span></button>
+  </div>
+
+  <!-- PASO 1 -->
+  <section class="panel active" id="panel1">
+
+    <div class="card">
+      <h2>Ayuda de lectura (OCR / PDF)</h2>
+      <div class="sub">Sube la captura del horario (imagen) o el PDF oficial. Si es un PDF con texto real (no escaneado), la lectura es mucho más confiable porque no depende de reconocimiento óptico. Se extrae el contenido y, si el formato de tabla es reconocible, te propongo secciones ya armadas para que las revises antes de agregarlas — nada se guarda sin que lo confirmes.</div>
+      <div class="ocr-box">
+        <label class="upload-btn">Subir imagen o PDF
+          <input type="file" id="imgInput" accept="image/*,.pdf,application/pdf">
+        </label>
+        <div id="ocrStatus">PNG, JPG o PDF · procesado localmente en tu navegador</div>
+        <textarea id="ocrText" readonly></textarea>
+        <button class="add-block-btn" id="detectBtn" style="display:none; margin-top:12px;">Detectar secciones automáticamente (beta)</button>
+        <textarea id="debugBox" readonly style="display:none; width:100%; min-height:100px; margin-top:12px; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:10px; border-radius:8px; border:1px solid var(--amber); background:var(--amber-soft);"></textarea>
+      </div>
+    </div>
+
+    <div class="card" id="reviewCard" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <h2>Revisa lo detectado</h2>
+          <div class="sub" id="reviewSub">Corrige lo que haga falta antes de agregarlo a tu lista.</div>
+        </div>
+        <button class="del-link" id="discardReviewBtn">descartar todo</button>
+      </div>
+      <div id="reviewList"></div>
+      <button class="save-btn" id="acceptReviewBtn" style="display:none;">Agregar secciones revisadas a mi lista</button>
+    </div>
+
+    <div class="card">
+      <h2>Agregar sección</h2>
+      <div class="sub">Una "sección" es una materia con un profesor/grupo específico. Puede tener varios bloques de día+hora.</div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Materia</label>
+          <input id="fMateria" placeholder="Ej. QUÍMICA I">
+        </div>
+        <div class="field">
+          <label>Sección / grupo (opcional)</label>
+          <input id="fSeccion" placeholder="Ej. A, 1EG1045">
+        </div>
+        <div class="field">
+          <label>Profesor (opcional)</label>
+          <input id="fProfesor" placeholder="Ej. RAMOS, JUANA">
+        </div>
+        <div class="field">
+          <label>Código horario (opcional)</label>
+          <input id="fCodigo" placeholder="Ej. 5996">
+        </div>
+      </div>
+
+      <div class="blocks-list" id="blocksList"></div>
+      <button class="add-block-btn" id="addBlockBtn">+ agregar día/hora</button>
+      <br>
+      <button class="save-btn" id="saveSectionBtn">Guardar sección</button>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <h2>Tus secciones cargadas</h2>
+          <div class="sub" id="countSub">Aún no hay secciones.</div>
+        </div>
+        <button class="del-link" id="clearAllBtn" style="white-space:nowrap;">borrar todo</button>
+      </div>
+      <div id="sectionList"></div>
+      <div id="saveIndicator" style="font-size:11.5px; color:var(--muted); margin-top:10px;"></div>
+    </div>
+  </section>
+
+  <!-- PASO 2 -->
+  <section class="panel" id="panel2">
+    <div class="card">
+      <h2>¿Qué materias necesitas?</h2>
+      <div class="sub">Marca las materias para las que quieres generar combinaciones sin choque.</div>
+      <div class="chips" id="materiaChips"></div>
+    </div>
+    <div class="card">
+      <h2>Turno preferido</h2>
+      <div class="sub">Solo se considerarán secciones cuyos bloques caigan dentro del turno elegido.</div>
+      <div class="turno-row" id="turnoChips">
+        <div class="chip on" data-turno="cualquiera">Cualquiera</div>
+        <div class="chip" data-turno="manana">Mañana (antes de 12:00)</div>
+        <div class="chip" data-turno="tarde">Tarde (12:00–18:00)</div>
+        <div class="chip" data-turno="noche">Noche (después de 18:00)</div>
+      </div>
+      <button class="gen-btn" id="genBtn">Generar combinaciones →</button>
+    </div>
+  </section>
+
+  <!-- PASO 3 -->
+  <section class="panel" id="panel3">
+    <div class="card">
+      <div id="resultsHead"></div>
+      <div id="resultsBody"></div>
+    </div>
+  </section>
+
+  <div class="note">Prototipo sin backend: todo (OCR, datos y comparación) corre en tu navegador con JavaScript. Tus secciones se guardan con <code>localStorage</code> en este navegador y sobreviven si recargas la página — pero son locales a este dispositivo/navegador y se pierden si borras los datos del sitio. Es una base para probar el flujo, no un producto final.</div>
+
+</div>
+
+<script>
+const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const STORAGE_KEY = "horarioweb-secciones";
+let sections = []; // {id, materia, seccion, profesor, codigo, blocks:[{dia,inicio,fin,aula}]}
+let selectedMaterias = new Set();
+let turno = "cualquiera";
+let combos = [];
+let comboIdx = 0;
+
+// ---------- Persistencia local ----------
+function saveToStorage(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sections));
+    const ind = document.getElementById("saveIndicator");
+    if(ind){
+      const hora = new Date().toLocaleTimeString('es-PA', {hour:'2-digit', minute:'2-digit'});
+      ind.textContent = `Guardado en este navegador · ${hora}`;
+    }
+  }catch(err){
+    const ind = document.getElementById("saveIndicator");
+    if(ind) ind.textContent = "No se pudo guardar localmente (revisa el espacio del navegador).";
+  }
+}
+function loadFromStorage(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) sections = JSON.parse(raw);
+  }catch(err){
+    sections = [];
+  }
+}
+
+// ---------- Navigation ----------
+function genId(){
+  return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
+}
+document.querySelectorAll(".step-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=> goToStep(btn.dataset.step));
+});
+function goToStep(n){
+  document.querySelectorAll(".step-btn").forEach(b=>b.classList.toggle("active", b.dataset.step===String(n)));
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+  document.getElementById("panel"+n).classList.add("active");
+  if(n==="2") renderMateriaChips();
+}
+
+// ---------- Lectura de archivo: imagen (OCR) o PDF (texto real) ----------
+let lastWords = [];
+
+// Un item de texto de pdf.js puede traer varias palabras juntas ("LUNES MARTES...").
+// Las separamos en palabras individuales repartiendo el ancho proporcionalmente,
+// para que el resto del motor (que espera una palabra = una casilla) funcione igual.
+function splitPdfItemIntoWords(str, x0, y0, x1, y1){
+  const totalChars = str.length;
+  if(totalChars===0) return [];
+  const totalWidth = x1 - x0;
+  const tokens = str.split(/(\s+)/); // conserva los espacios para calcular posiciones
+  const words = [];
+  let charPos = 0;
+  tokens.forEach(tok=>{
+    const wx0 = x0 + totalWidth * (charPos/totalChars);
+    charPos += tok.length;
+    const wx1 = x0 + totalWidth * (charPos/totalChars);
+    if(tok.trim().length>0){
+      words.push({ text: tok, bbox: { x0: wx0, y0, x1: wx1, y1 } });
+    }
+  });
+  return words;
+}
+
+async function extractWordsFromPdf(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let allWords = [];
+  let rawText = "";
+  for(let p=1; p<=pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 1 });
+    const textContent = await page.getTextContent();
+    const offsetY = (p-1) * (viewport.height + 300); // separa páginas para que no se mezclen filas
+    textContent.items.forEach(item=>{
+      if(!item.str || !item.str.trim()) return;
+      const x0 = item.transform[4];
+      const y1v = viewport.height - item.transform[5];
+      const h = item.height || 10;
+      const y0 = y1v - h;
+      const x1 = x0 + (item.width || (item.str.length*6));
+      const words = splitPdfItemIntoWords(item.str, x0, y0 + offsetY, x1, y1v + offsetY);
+      allWords = allWords.concat(words);
+      rawText += item.str + " ";
+    });
+    rawText += "\n\n";
+  }
+  return { words: allWords, text: rawText };
+}
+
+document.getElementById("imgInput").addEventListener("change", async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const status = document.getElementById("ocrStatus");
+  const box = document.getElementById("ocrText");
+  const detectBtn = document.getElementById("detectBtn");
+  box.style.display = "none";
+  detectBtn.style.display = "none";
+  hideReview();
+
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+  if(isPdf){
+    status.textContent = "Leyendo PDF...";
+    try{
+      const { words, text } = await extractWordsFromPdf(file);
+      box.value = text;
+      box.style.display = "block";
+      lastWords = words;
+      if(lastWords.length>0){
+        status.textContent = "Listo. Este PDF trae texto real (no es una imagen escaneada), así que la detección debería ser más confiable.";
+        detectBtn.style.display = "inline-block";
+      } else {
+        status.textContent = "El PDF no tiene texto seleccionable (parece ser un PDF escaneado). Prueba subiéndolo como imagen, o usa el formulario manual.";
+      }
+    }catch(err){
+      status.textContent = "No se pudo leer el PDF. Puedes llenar el formulario a mano.";
+    }
+    return;
+  }
+
+  status.textContent = "Leyendo imagen... esto puede tardar unos segundos.";
+  try{
+    const result = await Tesseract.recognize(file, 'spa+eng', {
+      logger: m => { if(m.status==='recognizing text'){ status.textContent = `Leyendo imagen... ${Math.round(m.progress*100)}%`; } }
+    });
+    box.value = result.data.text;
+    box.style.display = "block";
+    lastWords = (result.data.words || []).filter(w => w.text && w.text.trim().length>0);
+    if(lastWords.length>0){
+      status.textContent = "Listo. Puedes revisar el texto, o intentar la detección automática de la tabla.";
+      detectBtn.style.display = "inline-block";
+    } else {
+      status.textContent = "Listo, pero no se pudo ubicar texto con posición para detección automática. Usa el formulario manual.";
+    }
+  }catch(err){
+    status.textContent = "No se pudo leer la imagen. Puedes llenar el formulario a mano.";
+  }
+});
+
+document.getElementById("detectBtn").addEventListener("click", ()=>{
+  const { sections: detected, debug } = parseGridFromWords(lastWords);
+  const debugBox = document.getElementById("debugBox");
+  if(detected.length===0){
+    debugBox.value = debug;
+    debugBox.style.display = "block";
+    alert("No se reconoció una tabla con el formato esperado. Revisa el cuadro amarillo debajo del botón: muestra las filas que el sistema sí pudo leer, cópialas y compártelas para ajustar la detección.");
+    return;
+  }
+  debugBox.style.display = "none";
+  showReview(detected);
+});
+
+// ---------- Motor de detección de tabla ----------
+const DAY_LOOKUP = {
+  "LUNES":"Lunes", "MARTES":"Martes", "MIERCOLES":"Miércoles",
+  "JUEVES":"Jueves", "VIERNES":"Viernes", "SABADO":"Sábado",
+  "DOMINGO":"Domingo"
+};
+
+function stripAccents(s){
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function normWord(t){
+  return stripAccents(t).replace(/[^A-Za-z]/g,'').toUpperCase();
+}
+function levenshtein(a,b){
+  const m=a.length, n=b.length;
+  const dp = Array.from({length:m+1},()=>new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+function matchDay(token){
+  const t = normWord(token);
+  if(t.length<3) return null;
+  let best=null, bestDist=Infinity;
+  for(const [key,label] of Object.entries(DAY_LOOKUP)){
+    const d = levenshtein(t,key);
+    const thresh = Math.max(1, Math.floor(key.length/4));
+    if(d<=thresh && d<bestDist){ bestDist=d; best=label; }
+  }
+  if(!best){
+    for(const [key,label] of Object.entries(DAY_LOOKUP)){
+      if(Math.min(t.length,key.length)>=4 && (key.startsWith(t) || t.startsWith(key))){ best=label; break; }
+    }
+  }
+  return best;
+}
+function collectDayMatchesInRow(row){
+  const matches = [];
+  const used = new Set();
+  const words = row.words;
+  for(let i=0;i<words.length;i++){
+    const w = words[i];
+    let day = matchDay(w.text);
+    let cx = (w.bbox.x0+w.bbox.x1)/2;
+    if(!day && i+1<words.length){
+      const merged = w.text + words[i+1].text;
+      const d2 = matchDay(merged);
+      if(d2){ day = d2; cx = (w.bbox.x0+words[i+1].bbox.x1)/2; }
+    }
+    if(day && !used.has(day)){
+      used.add(day);
+      matches.push({ day, cx });
+    }
+  }
+  return matches;
+}
+
+// Respaldo posicional: si el recorte empieza justo en el encabezado, la primera
+// fila de la imagen SON los días, sin importar qué tan mal los haya leído el OCR.
+// Tomamos sus casillas de izquierda a derecha y asignamos Lunes→Domingo por orden fijo.
+const FIXED_DAY_ORDER = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+function detectHeaderPositional(rows){
+  if(!rows.length) return null;
+  const row0 = rows[0];
+  const tokens = row0.words.filter(w => /[A-Za-z\u00c0-\u00ff]{2,}/.test(w.text));
+  if(tokens.length < 7) return null;
+  const dayTokens = tokens.slice(-7); // descarta el token de "Horas" si hay 8
+  const columns = dayTokens.map((w,i)=>({ day: FIXED_DAY_ORDER[i], cx: (w.bbox.x0+w.bbox.x1)/2 }));
+  return { headerRow: row0, columns };
+}
+
+// agrupa palabras en filas por cercanía vertical (centro Y)
+// el margen de tolerancia se calcula según la altura real de las palabras en ESTA imagen,
+// en vez de un valor fijo — así no fusiona filas distintas cuando la imagen tiene otra resolución.
+function clusterRows(words){
+  const heights = words.map(w => w.bbox.y1 - w.bbox.y0).filter(h=>h>0).sort((a,b)=>a-b);
+  const medianH = heights.length ? heights[Math.floor(heights.length/2)] : 14;
+  const THRESH = Math.max(6, medianH * 0.55);
+
+  const sorted = [...words].sort((a,b)=> (a.bbox.y0+a.bbox.y1)/2 - (b.bbox.y0+b.bbox.y1)/2 );
+  const rows = [];
+  sorted.forEach(w=>{
+    const cy = (w.bbox.y0+w.bbox.y1)/2;
+    let row = rows.find(r => Math.abs(r.cy - cy) < THRESH);
+    if(!row){ row = { cy, words: [] }; rows.push(row); }
+    row.words.push(w);
+    row.cy = row.words.reduce((s,x)=>s+(x.bbox.y0+x.bbox.y1)/2,0)/row.words.length;
+  });
+  rows.sort((a,b)=>a.cy-b.cy);
+  rows.forEach(r=> r.words.sort((a,b)=>a.bbox.x0-b.bbox.x0));
+  return rows;
+}
+
+function parseTimeLabel(text){
+  // ej: "7:00-7:45A.M." o "12:50-1:35P.M." — tolera que el OCR se coma algún ":"
+  const m = text.replace(/\s+/g,'').match(/(\d{1,2}):?(\d{2})-(\d{1,2}):?(\d{2})([AP])\.?M?\.?/i);
+  if(!m) return null;
+  const period = m[5].toUpperCase();
+  const to24 = (h)=>{ h=Number(h); if(period==='A'){ if(h===12) h=0; } else { if(h!==12) h+=12; } return h; };
+  const pad = n => String(n).padStart(2,'0');
+  return {
+    inicio: `${pad(to24(m[1]))}:${m[2]}`,
+    fin: `${pad(to24(m[3]))}:${m[4]}`
+  };
+}
+
+function parseGridFromWords(words){
+  if(!words || words.length===0) return { sections: [], debug: "No se recibieron palabras con posición desde el OCR." };
+  const rows = clusterRows(words);
+
+  // 1) intento por texto: fila con más días reconocidos (tolerante a errores de OCR)
+  const scored = rows.map(r => ({ row: r, matches: collectDayMatchesInRow(r) }))
+                      .sort((a,b)=> b.matches.length - a.matches.length);
+  const bestByText = scored[0];
+
+  let headerRow, columns, headerMethod;
+  if(bestByText && bestByText.matches.length >= 2){
+    headerRow = bestByText.row;
+    columns = [...bestByText.matches].sort((a,b)=>a.cx-b.cx);
+    headerMethod = "texto";
+  } else {
+    // 2) respaldo posicional: asume que la primera fila del recorte es el encabezado
+    const positional = detectHeaderPositional(rows);
+    if(positional){
+      headerRow = positional.headerRow;
+      columns = positional.columns;
+      headerMethod = "posición (primera fila del recorte)";
+    }
+  }
+
+  if(!headerRow){
+    const debugLines = rows.slice(0,25).map((r,i)=>{
+      const txt = r.words.map(w=>w.text).join(' ');
+      const score = collectDayMatchesInRow(r).length;
+      return `[fila ${i}, y=${Math.round(r.cy)}, días detectados=${score}] ${txt}`;
+    }).join('\n');
+    return { sections: [], debug: `No se encontró un encabezado de días, ni por texto ni por posición (se necesitan al menos 7 casillas en la primera fila).\n\nFilas leídas por el OCR:\n${debugLines}` };
+  }
+  // límite izquierdo de la primera columna de día = borde de la columna "horas"
+  const firstColLeft = Math.min(...headerRow.words.map(w=>w.bbox.x0));
+
+  function colForX(x){
+    let bi=0, bestDist=Infinity;
+    columns.forEach((c,i)=>{ const d=Math.abs(c.cx-x); if(d<bestDist){bestDist=d; bi=i;} });
+    return columns[bi].day;
+  }
+
+  // 2) filas de datos: las que están debajo del encabezado y cuya primera palabra es una etiqueta de hora
+  const dataRows = rows.filter(r => r.cy > headerRow.cy + 10);
+  const blocks = [];
+  let currentTimeLabel = null;
+  const skippedRows = [];
+
+  dataRows.forEach(r=>{
+    const leftWords = r.words.filter(w => w.bbox.x0 < firstColLeft + 160);
+    const joinedLeft = leftWords.map(w=>w.text).join('');
+    const timeLabel = parseTimeLabel(joinedLeft) || parseTimeLabel(r.words.map(w=>w.text).join(''));
+    if(!timeLabel){
+      skippedRows.push(r.words.map(w=>w.text).join(' '));
+      return;
+    }
+    currentTimeLabel = timeLabel;
+
+    const rightWords = r.words.filter(w => w.bbox.x0 >= firstColLeft + 100 && !matchDay(w.text));
+    const byCol = {};
+    rightWords.forEach(w=>{
+      const day = colForX((w.bbox.x0+w.bbox.x1)/2);
+      (byCol[day] ??= []).push(w);
+    });
+    Object.entries(byCol).forEach(([day, ws])=>{
+      ws.sort((a,b)=>a.bbox.x0-b.bbox.x0);
+      const cellText = ws.map(w=>w.text).join(' ');
+      const parsed = parseCellText(cellText);
+      if(parsed){
+        blocks.push({ dia: day, inicio: currentTimeLabel.inicio, fin: currentTimeLabel.fin, ...parsed });
+      }
+    });
+  });
+
+  const sectionsFound = groupBlocksIntoSections(blocks);
+  if(sectionsFound.length===0){
+    const debugLines = skippedRows.slice(0,20).map(t=>`(sin hora reconocible) ${t}`).join('\n');
+    return { sections: [], debug: `Se encontró el encabezado (${columns.map(c=>c.day).join(', ')}) pero ninguna fila de abajo tuvo una hora reconocible tipo "7:00-7:45A.M.".\n\nFilas debajo del encabezado:\n${debugLines}` };
+  }
+  return { sections: sectionsFound, debug: "" };
+}
+
+function parseCellText(raw){
+  let text = raw.trim();
+  if(text.length < 2) return null;
+  let aula = '';
+  const aulaMatch = text.match(/AULA[:\s]*([0-9A-Z\-]+)/i);
+  if(aulaMatch){
+    aula = aulaMatch[1].toUpperCase();
+    text = text.slice(0, aulaMatch.index).trim();
+  }
+  let seccion = '';
+  const secMatch = text.match(/\(\s*([A-Z])[^)]*\)/i);
+  if(secMatch){
+    seccion = secMatch[1].toUpperCase();
+    text = text.replace(secMatch[0], '').trim();
+  }
+  const materia = text.replace(/[|_]+/g,'').replace(/\s{2,}/g,' ').trim().toUpperCase();
+  if(!materia) return null;
+  return { materia, seccion, aula };
+}
+
+function groupBlocksIntoSections(blocks){
+  const map = new Map();
+  blocks.forEach(b=>{
+    const key = b.materia + '|' + b.seccion;
+    if(!map.has(key)){
+      map.set(key, { tempId: genId(), materia: b.materia, seccion: b.seccion, profesor:'', codigo:'', blocks: [] });
+    }
+    map.get(key).blocks.push({ dia: b.dia, inicio: b.inicio, fin: b.fin, aula: b.aula });
+  });
+  const result = [...map.values()];
+  result.forEach(s=>{ s.blocks = mergeContiguousBlocks(s.blocks); });
+  return result;
+}
+
+// Si una materia ocupa varias franjas horarias seguidas el mismo día (ej. 7:00-7:45 y 7:50-8:35,
+// con 5 minutos de "pasada de clase" entre medio), las une en un solo bloque (7:00-8:35) — pero
+// solo si el aula es la misma; si cambia de salón a mitad de sesión, se dejan separadas.
+function mergeContiguousBlocks(blocks){
+  const GAP_TOLERANCE_MIN = 10; // tolera hasta 10 min de diferencia entre el fin de una franja y el inicio de la siguiente
+  const byDay = {};
+  blocks.forEach(b=>{ (byDay[b.dia] ??= []).push(b); });
+  const merged = [];
+  Object.entries(byDay).forEach(([dia, arr])=>{
+    arr.sort((a,b)=> toMin(a.inicio) - toMin(b.inicio));
+    let current = null;
+    arr.forEach(b=>{
+      const sameAula = (current?.aula || '') === (b.aula || '');
+      const gap = current ? toMin(b.inicio) - toMin(current.fin) : null;
+      if(current && gap!==null && gap>=0 && gap<=GAP_TOLERANCE_MIN && sameAula){
+        current = { ...current, fin: b.fin };
+      } else {
+        if(current) merged.push(current);
+        current = { ...b };
+      }
+    });
+    if(current) merged.push(current);
+  });
+  return merged;
+}
+
+// ---------- Revisar detección ----------
+let reviewData = [];
+
+// vuelca lo que el usuario haya editado en los inputs de vuelta a reviewData,
+// para no perder cambios al agregar/quitar un bloque o al aceptar.
+function syncReviewFromDOM(){
+  document.querySelectorAll("#reviewList .review-item").forEach(item=>{
+    const si = Number(item.dataset.si);
+    const s = reviewData[si];
+    if(!s) return;
+    s.materia = item.querySelector(".rv-materia").value.trim().toUpperCase();
+    s.seccion = item.querySelector(".rv-seccion").value.trim();
+    s.codigo = item.querySelector(".rv-codigo").value.trim();
+    const blockRows = item.querySelectorAll(".rev-block-row");
+    s.blocks = [...blockRows].map(r=>({
+      dia: r.querySelector(".rv-dia").value,
+      inicio: r.querySelector(".rv-inicio").value,
+      fin: r.querySelector(".rv-fin").value,
+      aula: r.querySelector(".rv-aula").value.trim()
+    }));
+  });
+}
+
+function showReview(detected){
+  reviewData = detected;
+  document.getElementById("reviewCard").style.display = "block";
+  document.getElementById("acceptReviewBtn").style.display = "inline-block";
+  document.getElementById("reviewSub").textContent = `Se detectaron ${detected.length} sección(es). Revisa nombres, días, horas y aulas antes de agregarlas — el OCR puede equivocarse.`;
+  renderReview();
+  document.getElementById("reviewCard").scrollIntoView({behavior:'smooth', block:'start'});
+}
+function hideReview(){
+  reviewData = [];
+  document.getElementById("reviewCard").style.display = "none";
+  document.getElementById("acceptReviewBtn").style.display = "none";
+}
+document.getElementById("discardReviewBtn").addEventListener("click", hideReview);
+
+function renderReview(){
+  const listEl = document.getElementById("reviewList");
+  if(reviewData.length===0){ listEl.innerHTML = ''; return; }
+  listEl.innerHTML = reviewData.map((s, si)=>`
+    <div class="review-item" data-si="${si}">
+      <div class="rev-head">
+        <input class="rv-materia" value="${s.materia}" placeholder="Materia">
+        <input class="rv-seccion" value="${s.seccion}" placeholder="Sección">
+        <input class="rv-codigo" value="${s.codigo}" placeholder="Código (opcional)">
+      </div>
+      ${s.blocks.map((b, bi)=>`
+        <div class="rev-block-row" data-bi="${bi}">
+          <select class="rv-dia">${DAYS.map(d=>`<option ${b.dia===d?'selected':''}>${d}</option>`).join('')}</select>
+          <input type="time" class="rv-inicio" value="${b.inicio}">
+          <input type="time" class="rv-fin" value="${b.fin}">
+          <input class="rv-aula" value="${b.aula||''}" placeholder="Aula">
+          <button class="mini-btn rv-del-block" type="button">×</button>
+        </div>
+      `).join('')}
+      <button class="add-block-btn rv-add-block" data-si="${si}" type="button">+ agregar día/hora</button>
+      <button class="rev-discard" data-si="${si}">descartar esta sección</button>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll(".rv-add-block").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      syncReviewFromDOM();
+      const si = Number(btn.dataset.si);
+      reviewData[si].blocks.push({ dia: "Lunes", inicio: "07:00", fin: "07:45", aula: "" });
+      renderReview();
+    });
+  });
+  listEl.querySelectorAll(".rev-discard").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      syncReviewFromDOM();
+      reviewData.splice(Number(btn.dataset.si), 1);
+      renderReview();
+    });
+  });
+  listEl.querySelectorAll(".rev-del-block").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      syncReviewFromDOM();
+      const item = e.target.closest(".review-item");
+      const row = e.target.closest(".rev-block-row");
+      const si = Number(item.dataset.si);
+      const bi = Number(row.dataset.bi);
+      reviewData[si].blocks.splice(bi,1);
+      renderReview();
+    });
+  });
+}
+
+document.getElementById("acceptReviewBtn").addEventListener("click", ()=>{
+  syncReviewFromDOM();
+
+  const valid = reviewData.filter(s => s.materia && s.blocks.length>0);
+  if(valid.length===0){ alert("No hay secciones válidas para agregar."); return; }
+
+  valid.forEach(s=>{
+    sections.push({
+      id: genId(),
+      materia: s.materia,
+      seccion: s.seccion,
+      profesor: s.profesor||'',
+      codigo: s.codigo||'',
+      blocks: s.blocks
+    });
+  });
+  saveToStorage();
+  renderSections();
+  hideReview();
+  document.getElementById("ocrStatus").textContent = `${valid.length} sección(es) agregada(s) desde la detección automática.`;
+});
+
+// ---------- Block rows in form ----------
+function addBlockRow(data={}){
+  const row = document.createElement("div");
+  row.className = "block-row";
+  row.innerHTML = `
+    <div class="field"><label>Día</label>
+      <select class="b-dia">
+        ${DAYS.map(d=>`<option ${data.dia===d?'selected':''}>${d}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Inicio</label><input type="time" class="b-inicio" value="${data.inicio||'07:00'}"></div>
+    <div class="field"><label>Fin</label><input type="time" class="b-fin" value="${data.fin||'07:45'}"></div>
+    <div class="field"><label>Aula</label><input class="b-aula" placeholder="3-103" value="${data.aula||''}"></div>
+    <button class="mini-btn" type="button">×</button>
+  `;
+  row.querySelector(".mini-btn").addEventListener("click", ()=> row.remove());
+  document.getElementById("blocksList").appendChild(row);
+}
+document.getElementById("addBlockBtn").addEventListener("click", ()=> addBlockRow());
+addBlockRow(); // start with one row
+
+// ---------- Save section ----------
+document.getElementById("saveSectionBtn").addEventListener("click", ()=>{
+  const materia = document.getElementById("fMateria").value.trim().toUpperCase();
+  if(!materia){ alert("Ponle un nombre a la materia."); return; }
+  const rows = document.querySelectorAll(".block-row");
+  if(rows.length===0){ alert("Agrega al menos un día/hora."); return; }
+  const blocks = [];
+  rows.forEach(r=>{
+    const dia = r.querySelector(".b-dia").value;
+    const inicio = r.querySelector(".b-inicio").value;
+    const fin = r.querySelector(".b-fin").value;
+    const aula = r.querySelector(".b-aula").value.trim();
+    if(inicio && fin) blocks.push({dia, inicio, fin, aula});
+  });
+  if(blocks.length===0){ alert("Revisa las horas de los bloques."); return; }
+
+  sections.push({
+    id: genId(),
+    materia,
+    seccion: document.getElementById("fSeccion").value.trim(),
+    profesor: document.getElementById("fProfesor").value.trim(),
+    codigo: document.getElementById("fCodigo").value.trim(),
+    blocks
+  });
+
+  // reset form
+  ["fMateria","fSeccion","fProfesor","fCodigo"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("blocksList").innerHTML = "";
+  addBlockRow();
+
+  saveToStorage();
+  renderSections();
+});
+
+function renderSections(){
+  const listEl = document.getElementById("sectionList");
+  const countSub = document.getElementById("countSub");
+  if(sections.length===0){
+    countSub.textContent = "Aún no hay secciones.";
+    listEl.innerHTML = "";
+    return;
+  }
+  countSub.textContent = `${sections.length} sección(es) cargada(s) en ${new Set(sections.map(s=>s.materia)).size} materia(s).`;
+
+  const byMateria = {};
+  sections.forEach(s=>{ (byMateria[s.materia] ??= []).push(s); });
+
+  listEl.innerHTML = Object.entries(byMateria).map(([materia, secs])=>`
+    <div class="subj-group">
+      <div class="subj-head"><span>${materia}</span><span class="meta">${secs.length} sección(es)</span></div>
+      ${secs.map(s=>`
+        <div class="sec-row">
+          <div>
+            ${s.seccion?`<span class="tag">${s.seccion}</span>`:''}
+            ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
+            <span class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.aula?` (${b.aula})`:''}`).join(' · ')}</span>
+            ${s.profesor?`<div class="meta">${s.profesor}</div>`:''}
+          </div>
+          <button class="del-link" data-id="${s.id}">quitar</button>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll(".del-link").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      sections = sections.filter(s=>s.id!==btn.dataset.id);
+      saveToStorage();
+      renderSections();
+    });
+  });
+}
+
+document.getElementById("clearAllBtn").addEventListener("click", ()=>{
+  if(sections.length===0) return;
+  if(!confirm("¿Borrar todas las secciones guardadas en este navegador?")) return;
+  sections = [];
+  saveToStorage();
+  renderSections();
+});
+
+// ---------- Inicio ----------
+loadFromStorage();
+renderSections();
+
+// ---------- Step 2: materias + turno ----------
+function renderMateriaChips(){
+  const wrap = document.getElementById("materiaChips");
+  const materias = [...new Set(sections.map(s=>s.materia))];
+  if(materias.length===0){
+    wrap.innerHTML = `<span style="color:var(--muted); font-size:13px;">Agrega secciones en el paso 1 primero.</span>`;
+    return;
+  }
+  wrap.innerHTML = materias.map(m=>`<div class="chip ${selectedMaterias.has(m)?'on':''}" data-m="${m}">${m}</div>`).join('');
+  wrap.querySelectorAll(".chip").forEach(c=>{
+    c.addEventListener("click", ()=>{
+      const m = c.dataset.m;
+      selectedMaterias.has(m) ? selectedMaterias.delete(m) : selectedMaterias.add(m);
+      c.classList.toggle("on");
+    });
+  });
+}
+document.getElementById("turnoChips").addEventListener("click",(e)=>{
+  const chip = e.target.closest(".chip");
+  if(!chip) return;
+  document.querySelectorAll("#turnoChips .chip").forEach(c=>c.classList.remove("on"));
+  chip.classList.add("on");
+  turno = chip.dataset.turno;
+});
+
+// ---------- Time helpers ----------
+function toMin(t){ const [h,m]=t.split(":").map(Number); return h*60+m; }
+function overlap(b1,b2){
+  if(b1.dia!==b2.dia) return false;
+  return toMin(b1.inicio) < toMin(b2.fin) && toMin(b2.inicio) < toMin(b1.fin);
+}
+function inTurno(block, turno){
+  if(turno==="cualquiera") return true;
+  const start = toMin(block.inicio);
+  if(turno==="manana") return start < 12*60;
+  if(turno==="tarde") return start >= 12*60 && start < 18*60;
+  if(turno==="noche") return start >= 18*60;
+  return true;
+}
+
+// ---------- Generate combos ----------
+document.getElementById("genBtn").addEventListener("click", ()=>{
+  const materias = [...selectedMaterias];
+  if(materias.length===0){ alert("Marca al menos una materia."); return; }
+
+  const options = materias.map(m=>{
+    return sections.filter(s=> s.materia===m && s.blocks.every(b=>inTurno(b,turno)) );
+  });
+
+  const missing = materias.filter((m,i)=>options[i].length===0);
+  if(missing.length>0){
+    combos = [];
+    renderResults(missing);
+    goToStep(3);
+    return;
+  }
+
+  combos = [];
+  function backtrack(i, chosen){
+    if(i===options.length){ combos.push([...chosen]); return; }
+    for(const sec of options[i]){
+      const clash = chosen.some(picked => picked.blocks.some(b1 => sec.blocks.some(b2=>overlap(b1,b2))));
+      if(!clash){ chosen.push(sec); backtrack(i+1, chosen); chosen.pop(); }
+    }
+  }
+  backtrack(0, []);
+  comboIdx = 0;
+  renderResults();
+  goToStep(3);
+});
+
+// ---------- Render results ----------
+function renderResults(missing){
+  const head = document.getElementById("resultsHead");
+  const body = document.getElementById("resultsBody");
+
+  if(missing && missing.length){
+    head.innerHTML = `<h2>Sin opciones para tu turno</h2><div class="sub">No hay secciones de <b>${missing.join(", ")}</b> dentro del turno elegido. Prueba con "Cualquiera" o agrega más secciones.</div>`;
+    body.innerHTML = "";
+    return;
+  }
+
+  if(combos.length===0){
+    head.innerHTML = `<h2>No hay combinaciones sin choque</h2>`;
+    body.innerHTML = `<div class="empty-state"><div class="big">✕</div>Con las secciones que cargaste, todas las combinaciones tienen al menos un choque de horario. Agrega otra sección para alguna de tus materias.</div>`;
+    return;
+  }
+
+  head.innerHTML = `
+    <div class="combo-nav">
+      <button id="prevCombo">‹</button>
+      <span class="combo-pill">Opción ${comboIdx+1} de ${combos.length} sin choques</span>
+      <button id="nextCombo">›</button>
+    </div>
+  `;
+  document.getElementById("prevCombo").disabled = comboIdx===0;
+  document.getElementById("nextCombo").disabled = comboIdx===combos.length-1;
+  document.getElementById("prevCombo").addEventListener("click", ()=>{ comboIdx--; renderResults(); });
+  document.getElementById("nextCombo").addEventListener("click", ()=>{ comboIdx++; renderResults(); });
+
+  body.innerHTML = renderComboGrid(combos[comboIdx]) + renderComboList(combos[comboIdx]);
+}
+
+const PALETTE = ["#E1F3EA","#FCEDC7","#E3EAFB","#FBE1EC","#E7E1FB","#DFF3F3"];
+function colorFor(materia, list){
+  const idx = list.indexOf(materia) % PALETTE.length;
+  return PALETTE[idx];
+}
+
+function renderComboGrid(combo){
+  const materiasInCombo = combo.map(s=>s.materia);
+  // build hour rows from all blocks (unique start-end)
+  const allBlocks = combo.flatMap(s=>s.blocks.map(b=>({...b, materia:s.materia, seccion:s.seccion})));
+  const hourSet = [...new Set(allBlocks.map(b=>`${b.inicio}-${b.fin}`))].sort();
+  let html = `<table class="grid-table"><thead><tr><th>Hora</th>${DAYS.map(d=>`<th>${d}</th>`).join('')}</tr></thead><tbody>`;
+  hourSet.forEach(h=>{
+    const [ini,fin] = h.split("-");
+    html += `<tr><td class="hourcol">${ini}<br>${fin}</td>`;
+    DAYS.forEach(d=>{
+      const b = allBlocks.find(x=>x.dia===d && x.inicio===ini && x.fin===fin);
+      if(b){
+        html += `<td><div class="cell-block" style="background:${colorFor(b.materia, materiasInCombo)}">
+          <div class="m">${b.materia}</div>
+          ${b.aula?`<div class="a">${b.aula}</div>`:''}
+        </div></td>`;
+      } else {
+        html += `<td></td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+  html += `</tbody></table>`;
+  return html;
+}
+function renderComboList(combo){
+  return `<div style="margin-top:16px; display:flex; flex-direction:column; gap:6px;">
+    ${combo.map(s=>`<div class="sec-row" style="border:1px solid var(--border); border-radius:8px;">
+      <div><b>${s.materia}</b> ${s.seccion?`<span class="tag">${s.seccion}</span>`:''} ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
+      <div class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}`).join(' · ')}</div></div>
+    </div>`).join('')}
+  </div>`;
+}
+</script>
+</body>
+</html>
