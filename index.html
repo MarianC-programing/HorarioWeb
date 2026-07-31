@@ -177,6 +177,31 @@
   .rev-discard{font-size:11.5px; color:var(--red); background:none; border:none; cursor:pointer; font-weight:600;}
   .low-confidence{border-color:var(--amber); background:var(--amber-soft);}
 
+  /* toggles: laboratorio / virtual, y bloque alternativo presencial */
+  .block-toggles{
+    grid-column:1/-1; display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+    padding-top:2px; margin-bottom:2px;
+  }
+  .block-toggles label{
+    display:flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--steel); cursor:pointer;
+  }
+  .block-toggles input[type=checkbox]{ width:15px; height:15px; accent-color: var(--navy); cursor:pointer; }
+  .alt-presencial-wrap{
+    grid-column:1/-1; display:none; grid-template-columns:1.1fr 1fr 1fr 1fr; gap:6px;
+    background:var(--amber-soft); border:1px dashed var(--amber); border-radius:8px; padding:8px; margin-top:2px;
+  }
+  .alt-presencial-wrap.show{ display:grid; }
+  .alt-presencial-wrap .alt-label{
+    grid-column:1/-1; font-size:11px; color:#8a6300; font-weight:600; margin-bottom:2px;
+  }
+  .alt-presencial-wrap select, .alt-presencial-wrap input{
+    padding:6px 7px; border:1px solid var(--border); border-radius:6px; font-size:12px;
+  }
+  .edit-link{border:none; background:none; color:var(--steel); cursor:pointer; font-size:12px; font-weight:600; margin-right:10px;}
+  .edit-panel{
+    border:1px solid var(--amber); background:var(--amber-soft); border-radius:10px; padding:12px; margin-top:8px;
+  }
+
   /* filters */
   .chips{display:flex; flex-wrap:wrap; gap:8px;}
   .chip{
@@ -248,6 +273,8 @@
     .rev-block-row .mini-btn{ grid-column:1/-1; justify-self:end; }
 
     .review-item .rev-head{ grid-template-columns:1fr; }
+
+    .alt-presencial-wrap{ grid-template-columns:1fr 1fr; }
 
     .sec-row{ font-size:12.5px; }
 
@@ -625,8 +652,23 @@ function applyLegendToSections(sectionsDetected, legend){
     const key = normMateria(s.materia);
     let entry = legend[key];
     if(!entry){
+      // 1) coincidencia parcial (una contiene a la otra), útil cuando el nombre en la
+      // cuadrícula viene abreviado distinto al de la leyenda (ej. "PROGR.SOFTW.I" vs "PROGRAMACION DE SOFTWARE I")
       const candidates = keys.filter(k => k.includes(key) || key.includes(k));
-      if(candidates.length===1) entry = legend[candidates[0]];
+      if(candidates.length===1){
+        entry = legend[candidates[0]];
+      } else if(candidates.length===0){
+        // 2) respaldo por distancia de edición, para diferencias de OCR entre ambas tablas
+        // (ej. "ESTR.YREP." en la cuadrícula vs "ESTRUCTURA Y REPRESENTACION" en la leyenda
+        // no se contienen una a la otra, pero sí son muy parecidas letra por letra en su raíz)
+        let best=null, bestDist=Infinity;
+        keys.forEach(k=>{
+          const d = levenshtein(key, k);
+          const thresh = Math.max(2, Math.floor(Math.min(key.length,k.length) * 0.35));
+          if(d<=thresh && d<bestDist){ bestDist=d; best=k; }
+        });
+        if(best) entry = legend[best];
+      }
     }
     if(entry){
       let changed = false;
@@ -815,10 +857,14 @@ function parseGridFromWords(words){
     const joinedLeft = leftWords.map(w=>w.text).join('');
     const timeLabel = parseTimeLabel(joinedLeft) || parseTimeLabel(r.words.map(w=>w.text).join(''));
     if(timeLabel){
-      currentGroup = { timeLabel, words: [...r.words], continuations: 0 };
+      // "lines" guarda cada línea física por separado (en vez de una sola bolsa de palabras),
+      // para poder unirlas después en el orden correcto (línea 1, luego línea 2...) sin importar
+      // si sus posiciones X se cruzan entre sí — eso evitaba que, por ejemplo, un numeral romano
+      // de nivel ("(II)") quedara después del corte de "AULA:" solo porque en X caía más a la derecha.
+      currentGroup = { timeLabel, lines: [[...r.words]], continuations: 0 };
       rowGroups.push(currentGroup);
     } else if(currentGroup && currentGroup.continuations < MAX_CONTINUATION_LINES){
-      currentGroup.words.push(...r.words); // continuación de la celda anterior
+      currentGroup.lines.push([...r.words]); // nueva línea física, continuación de la celda anterior
       currentGroup.continuations++;
     } else {
       skippedRows.push(r.words.map(w=>w.text).join(' '));
@@ -827,15 +873,25 @@ function parseGridFromWords(words){
 
   const blocks = [];
   rowGroups.forEach(group=>{
-    const rightWords = group.words.filter(w => w.bbox.x0 >= firstColLeft + 100 && !matchDay(w.text));
-    const byCol = {};
-    rightWords.forEach(w=>{
-      const day = colForX((w.bbox.x0+w.bbox.x1)/2);
-      (byCol[day] ??= []).push(w);
+    // Se arma el texto de cada celda línea por línea (respetando el orden físico de arriba hacia
+    // abajo), y dentro de cada línea se ordena por posición X. Así nunca se mezcla el contenido
+    // de dos líneas distintas de una misma celda en un orden incorrecto.
+    const byColLines = {};
+    group.lines.forEach(lineWords=>{
+      const filtered = lineWords.filter(w => w.bbox.x0 >= firstColLeft + 100 && !matchDay(w.text));
+      const byColThisLine = {};
+      filtered.forEach(w=>{
+        const day = colForX((w.bbox.x0+w.bbox.x1)/2);
+        (byColThisLine[day] ??= []).push(w);
+      });
+      Object.entries(byColThisLine).forEach(([day, ws])=>{
+        ws.sort((a,b)=>a.bbox.x0-b.bbox.x0);
+        const lineText = ws.map(w=>w.text).join(' ').trim();
+        if(lineText){ (byColLines[day] ??= []).push(lineText); }
+      });
     });
-    Object.entries(byCol).forEach(([day, ws])=>{
-      ws.sort((a,b)=>a.bbox.x0-b.bbox.x0);
-      const cellText = ws.map(w=>w.text).join(' ');
+    Object.entries(byColLines).forEach(([day, lineTexts])=>{
+      const cellText = lineTexts.join(' ');
       const parsed = parseCellText(cellText);
       if(parsed){
         blocks.push({ dia: day, inicio: group.timeLabel.inicio, fin: group.timeLabel.fin, ...parsed });
@@ -851,6 +907,18 @@ function parseGridFromWords(words){
   return { sections: sectionsFound, debug: "" };
 }
 
+// Numerales romanos usados como indicador de NIVEL de la materia (Cálculo II, Física III, etc.)
+// — a diferencia de una letra de SECCIÓN/grupo (A, B, C) o de laboratorio (L), un numeral
+// romano debe quedarse como parte del nombre de la materia, nunca descartarse.
+const ROMAN_NUMERALS = new Set(["I","II","III","IV","V","VI","VII","VIII","IX","X"]);
+
+// Detecta si un código de aula corresponde a una modalidad virtual. En el formato de la UTP,
+// una "N" justo después del guión (ej. "3-N01") indica que la clase es virtual, a diferencia
+// de un aula física normal (ej. "3-108").
+function isVirtualAula(aula){
+  return /-N\d/i.test(aula || '');
+}
+
 function parseCellText(raw){
   let text = raw.trim();
   if(text.length < 2) return null;
@@ -861,14 +929,33 @@ function parseCellText(raw){
     text = text.slice(0, aulaMatch.index).trim();
   }
   let seccion = '';
-  const secMatch = text.match(/\(\s*([A-Z])[^)]*\)/i);
-  if(secMatch){
-    seccion = secMatch[1].toUpperCase();
-    text = text.replace(secMatch[0], '').trim();
+  let laboratorio = false;
+  // Busca un solo grupo de paréntesis con contenido alfabético: "(A)", "(L)", "(II)", etc.
+  const parenMatch = text.match(/\(\s*([A-Za-z]+)\s*\)/);
+  if(parenMatch){
+    const inner = parenMatch[1].toUpperCase();
+    if(ROMAN_NUMERALS.has(inner)){
+      // Es un nivel (numeral romano): se conserva como parte del nombre de la materia,
+      // solo se quitan los paréntesis.
+      text = text.replace(parenMatch[0], ' ' + inner).trim();
+    } else if(inner === 'L'){
+      // Laboratorio: se marca aparte, no se trata como "sección".
+      laboratorio = true;
+      text = text.replace(parenMatch[0], '').trim();
+    } else if(inner.length === 1){
+      // Una sola letra que no es numeral romano ni "L": es la sección/grupo (A, B, C...).
+      seccion = inner;
+      text = text.replace(parenMatch[0], '').trim();
+    } else {
+      // Contenido de múltiples letras no reconocido: por seguridad se conserva como parte
+      // del nombre en vez de descartarlo (mejor sobrar texto que perder información real).
+      text = text.replace(parenMatch[0], ' ' + inner).trim();
+    }
   }
   const materia = text.replace(/[|_]+/g,'').replace(/\s{2,}/g,' ').trim().toUpperCase();
   if(!materia) return null;
-  return { materia, seccion, aula };
+  const virtual = isVirtualAula(aula);
+  return { materia, seccion, aula, laboratorio, virtual };
 }
 
 function groupBlocksIntoSections(blocks){
@@ -878,7 +965,7 @@ function groupBlocksIntoSections(blocks){
     if(!map.has(key)){
       map.set(key, { tempId: genId(), materia: b.materia, seccion: b.seccion, profesor:'', codigo:'', blocks: [] });
     }
-    map.get(key).blocks.push({ dia: b.dia, inicio: b.inicio, fin: b.fin, aula: b.aula });
+    map.get(key).blocks.push({ dia: b.dia, inicio: b.inicio, fin: b.fin, aula: b.aula, laboratorio: !!b.laboratorio, virtual: !!b.virtual });
   });
   const result = [...map.values()];
   result.forEach(s=>{ s.blocks = mergeContiguousBlocks(s.blocks); });
@@ -926,12 +1013,28 @@ function syncReviewFromDOM(){
     s.codigo = item.querySelector(".rv-codigo").value.trim();
     s.profesor = item.querySelector(".rv-profesor").value.trim();
     const blockRows = item.querySelectorAll(".rev-block-row");
-    s.blocks = [...blockRows].map(r=>({
-      dia: r.querySelector(".rv-dia").value,
-      inicio: r.querySelector(".rv-inicio").value,
-      fin: r.querySelector(".rv-fin").value,
-      aula: r.querySelector(".rv-aula").value.trim()
-    }));
+    s.blocks = [...blockRows].map(r=>{
+      const virtual = r.querySelector(".rv-virtual").checked;
+      const altDia = r.querySelector(".rv-alt-dia").value;
+      let alternativaPresencial = null;
+      if(virtual && altDia){
+        alternativaPresencial = {
+          dia: altDia,
+          inicio: r.querySelector(".rv-alt-inicio").value,
+          fin: r.querySelector(".rv-alt-fin").value,
+          aula: r.querySelector(".rv-alt-aula").value.trim()
+        };
+      }
+      return {
+        dia: r.querySelector(".rv-dia").value,
+        inicio: r.querySelector(".rv-inicio").value,
+        fin: r.querySelector(".rv-fin").value,
+        aula: r.querySelector(".rv-aula").value.trim(),
+        laboratorio: r.querySelector(".rv-lab").checked,
+        virtual,
+        alternativaPresencial
+      };
+    });
   });
 }
 
@@ -965,15 +1068,31 @@ function renderReview(){
         <input class="rv-codigo" value="${s.codigo}" placeholder="Código (opcional)">
         <input class="rv-profesor" value="${s.profesor||''}" placeholder="Profesor (opcional)">
       </div>
-      ${s.blocks.map((b, bi)=>`
+      ${s.blocks.map((b, bi)=>{
+        const alt = b.alternativaPresencial || {};
+        return `
         <div class="rev-block-row" data-bi="${bi}">
           <select class="rv-dia">${DAYS.map(d=>`<option ${b.dia===d?'selected':''}>${d}</option>`).join('')}</select>
           <input type="time" class="rv-inicio" value="${b.inicio}">
           <input type="time" class="rv-fin" value="${b.fin}">
           <input class="rv-aula" value="${b.aula||''}" placeholder="Aula">
           <button class="mini-btn rv-del-block" type="button">×</button>
+          <div class="block-toggles">
+            <label><input type="checkbox" class="rv-lab" ${b.laboratorio?'checked':''}> Laboratorio</label>
+            <label><input type="checkbox" class="rv-virtual" ${b.virtual?'checked':''}> Virtual</label>
+          </div>
+          <div class="alt-presencial-wrap ${b.virtual?'show':''}">
+            <div class="alt-label">Alternativa presencial (opcional) — si esta clase es virtual pero también se ofrece en persona</div>
+            <select class="rv-alt-dia">
+              <option value="">Sin alternativa</option>
+              ${DAYS.map(d=>`<option ${alt.dia===d?'selected':''}>${d}</option>`).join('')}
+            </select>
+            <input type="time" class="rv-alt-inicio" value="${alt.inicio||''}">
+            <input type="time" class="rv-alt-fin" value="${alt.fin||''}">
+            <input class="rv-alt-aula" placeholder="Aula presencial" value="${alt.aula||''}">
+          </div>
         </div>
-      `).join('')}
+      `;}).join('')}
       <button class="add-block-btn rv-add-block" data-si="${si}" type="button">+ agregar día/hora</button>
       <button class="rev-discard" data-si="${si}">descartar esta sección</button>
     </div>
@@ -983,7 +1102,7 @@ function renderReview(){
     btn.addEventListener("click", ()=>{
       syncReviewFromDOM();
       const si = Number(btn.dataset.si);
-      reviewData[si].blocks.push({ dia: "Lunes", inicio: "07:00", fin: "07:45", aula: "" });
+      reviewData[si].blocks.push({ dia: "Lunes", inicio: "07:00", fin: "07:45", aula: "", laboratorio:false, virtual:false, alternativaPresencial:null });
       renderReview();
     });
   });
@@ -1003,6 +1122,13 @@ function renderReview(){
       const bi = Number(row.dataset.bi);
       reviewData[si].blocks.splice(bi,1);
       renderReview();
+    });
+  });
+  // toggle del panel de alternativa presencial al marcar/desmarcar "Virtual"
+  listEl.querySelectorAll(".rv-virtual").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const row = cb.closest(".rev-block-row");
+      row.querySelector(".alt-presencial-wrap").classList.toggle("show", cb.checked);
     });
   });
 }
@@ -1030,21 +1156,46 @@ document.getElementById("acceptReviewBtn").addEventListener("click", ()=>{
 });
 
 // ---------- Block rows in form ----------
-function addBlockRow(data={}){
-  const row = document.createElement("div");
-  row.className = "block-row";
-  row.innerHTML = `
+// Construye el HTML interno de una fila de bloque (día/hora/aula + toggles de
+// laboratorio/virtual + panel opcional de alternativa presencial). Se reutiliza tanto
+// en el formulario manual como en la pantalla de revisión de detección automática.
+function blockRowInnerHTML(data, dayClass, inicioClass, finClass, aulaClass, labClass, virtualClass, altWrapClass, altDiaClass, altInicioClass, altFinClass, altAulaClass, delClass){
+  const alt = data.alternativaPresencial || {};
+  return `
     <div class="field"><label>Día</label>
-      <select class="b-dia">
+      <select class="${dayClass}">
         ${DAYS.map(d=>`<option ${data.dia===d?'selected':''}>${d}</option>`).join('')}
       </select>
     </div>
-    <div class="field"><label>Inicio</label><input type="time" class="b-inicio" value="${data.inicio||'07:00'}"></div>
-    <div class="field"><label>Fin</label><input type="time" class="b-fin" value="${data.fin||'07:45'}"></div>
-    <div class="field"><label>Aula</label><input class="b-aula" placeholder="3-103" value="${data.aula||''}"></div>
-    <button class="mini-btn" type="button">×</button>
+    <div class="field"><label>Inicio</label><input type="time" class="${inicioClass}" value="${data.inicio||'07:00'}"></div>
+    <div class="field"><label>Fin</label><input type="time" class="${finClass}" value="${data.fin||'07:45'}"></div>
+    <div class="field"><label>Aula</label><input class="${aulaClass}" placeholder="3-103" value="${data.aula||''}"></div>
+    <button class="mini-btn ${delClass}" type="button">×</button>
+    <div class="block-toggles">
+      <label><input type="checkbox" class="${labClass}" ${data.laboratorio?'checked':''}> Laboratorio</label>
+      <label><input type="checkbox" class="${virtualClass}" ${data.virtual?'checked':''}> Virtual</label>
+    </div>
+    <div class="alt-presencial-wrap ${data.virtual?'show':''}">
+      <div class="alt-label">Alternativa presencial (opcional) — si esta clase es virtual pero también se ofrece en persona</div>
+      <select class="${altDiaClass}">
+        <option value="">Sin alternativa</option>
+        ${DAYS.map(d=>`<option ${alt.dia===d?'selected':''}>${d}</option>`).join('')}
+      </select>
+      <input type="time" class="${altInicioClass}" value="${alt.inicio||''}">
+      <input type="time" class="${altFinClass}" value="${alt.fin||''}">
+      <input class="${altAulaClass}" placeholder="Aula presencial" value="${alt.aula||''}">
+    </div>
   `;
+}
+
+function addBlockRow(data={}){
+  const row = document.createElement("div");
+  row.className = "block-row";
+  row.innerHTML = blockRowInnerHTML(data, "b-dia","b-inicio","b-fin","b-aula","b-lab","b-virtual","alt-presencial-wrap","b-alt-dia","b-alt-inicio","b-alt-fin","b-alt-aula","mini-btn-del");
   row.querySelector(".mini-btn").addEventListener("click", ()=> row.remove());
+  const virtualCb = row.querySelector(".b-virtual");
+  const altWrap = row.querySelector(".alt-presencial-wrap");
+  virtualCb.addEventListener("change", ()=> altWrap.classList.toggle("show", virtualCb.checked));
   document.getElementById("blocksList").appendChild(row);
 }
 document.getElementById("addBlockBtn").addEventListener("click", ()=> addBlockRow());
@@ -1062,7 +1213,19 @@ document.getElementById("saveSectionBtn").addEventListener("click", ()=>{
     const inicio = r.querySelector(".b-inicio").value;
     const fin = r.querySelector(".b-fin").value;
     const aula = r.querySelector(".b-aula").value.trim();
-    if(inicio && fin) blocks.push({dia, inicio, fin, aula});
+    const laboratorio = r.querySelector(".b-lab").checked;
+    const virtual = r.querySelector(".b-virtual").checked;
+    const altDia = r.querySelector(".b-alt-dia").value;
+    let alternativaPresencial = null;
+    if(virtual && altDia){
+      alternativaPresencial = {
+        dia: altDia,
+        inicio: r.querySelector(".b-alt-inicio").value,
+        fin: r.querySelector(".b-alt-fin").value,
+        aula: r.querySelector(".b-alt-aula").value.trim()
+      };
+    }
+    if(inicio && fin) blocks.push({dia, inicio, fin, aula, laboratorio, virtual, alternativaPresencial});
   });
   if(blocks.length===0){ alert("Revisa las horas de los bloques."); return; }
 
@@ -1084,6 +1247,95 @@ document.getElementById("saveSectionBtn").addEventListener("click", ()=>{
   renderSections();
 });
 
+// ---------- Editar una sección ya guardada ----------
+let editingSectionId = null;
+let editDraft = null;
+
+function startEdit(id){
+  const s = sections.find(x=>x.id===id);
+  if(!s) return;
+  editingSectionId = id;
+  editDraft = JSON.parse(JSON.stringify(s)); // copia de trabajo, no toca `sections` hasta guardar
+  renderSections();
+}
+function cancelEdit(){
+  editingSectionId = null;
+  editDraft = null;
+  renderSections();
+}
+function syncEditDraftFromDOM(panelEl){
+  editDraft.materia = panelEl.querySelector(".ed-materia").value.trim().toUpperCase();
+  editDraft.seccion = panelEl.querySelector(".ed-seccion").value.trim();
+  editDraft.codigo = panelEl.querySelector(".ed-codigo").value.trim();
+  editDraft.profesor = panelEl.querySelector(".ed-profesor").value.trim();
+  const rows = panelEl.querySelectorAll(".ed-block-row");
+  editDraft.blocks = [...rows].map(r=>{
+    const virtual = r.querySelector(".ed-virtual").checked;
+    const altDia = r.querySelector(".ed-alt-dia").value;
+    let alternativaPresencial = null;
+    if(virtual && altDia){
+      alternativaPresencial = {
+        dia: altDia,
+        inicio: r.querySelector(".ed-alt-inicio").value,
+        fin: r.querySelector(".ed-alt-fin").value,
+        aula: r.querySelector(".ed-alt-aula").value.trim()
+      };
+    }
+    return {
+      dia: r.querySelector(".ed-dia").value,
+      inicio: r.querySelector(".ed-inicio").value,
+      fin: r.querySelector(".ed-fin").value,
+      aula: r.querySelector(".ed-aula").value.trim(),
+      laboratorio: r.querySelector(".ed-lab").checked,
+      virtual,
+      alternativaPresencial
+    };
+  });
+}
+
+function renderEditPanel(s){
+  return `
+    <div class="edit-panel" data-editid="${s.id}">
+      <div class="rev-head" style="margin-bottom:10px;">
+        <input class="ed-materia" value="${s.materia}" placeholder="Materia">
+        <input class="ed-seccion" value="${s.seccion||''}" placeholder="Sección">
+        <input class="ed-codigo" value="${s.codigo||''}" placeholder="Código (opcional)">
+        <input class="ed-profesor" value="${s.profesor||''}" placeholder="Profesor (opcional)">
+      </div>
+      ${s.blocks.map((b)=>{
+        const alt = b.alternativaPresencial || {};
+        return `
+        <div class="ed-block-row rev-block-row">
+          <select class="ed-dia">${DAYS.map(d=>`<option ${b.dia===d?'selected':''}>${d}</option>`).join('')}</select>
+          <input type="time" class="ed-inicio" value="${b.inicio}">
+          <input type="time" class="ed-fin" value="${b.fin}">
+          <input class="ed-aula" value="${b.aula||''}" placeholder="Aula">
+          <button class="mini-btn ed-del-block" type="button">×</button>
+          <div class="block-toggles">
+            <label><input type="checkbox" class="ed-lab" ${b.laboratorio?'checked':''}> Laboratorio</label>
+            <label><input type="checkbox" class="ed-virtual" ${b.virtual?'checked':''}> Virtual</label>
+          </div>
+          <div class="alt-presencial-wrap ${b.virtual?'show':''}">
+            <div class="alt-label">Alternativa presencial (opcional)</div>
+            <select class="ed-alt-dia">
+              <option value="">Sin alternativa</option>
+              ${DAYS.map(d=>`<option ${alt.dia===d?'selected':''}>${d}</option>`).join('')}
+            </select>
+            <input type="time" class="ed-alt-inicio" value="${alt.inicio||''}">
+            <input type="time" class="ed-alt-fin" value="${alt.fin||''}">
+            <input class="ed-alt-aula" placeholder="Aula presencial" value="${alt.aula||''}">
+          </div>
+        </div>
+      `;}).join('')}
+      <button class="add-block-btn ed-add-block" type="button">+ agregar día/hora</button>
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button class="save-btn ed-save" type="button" style="margin-top:0;">Guardar cambios</button>
+        <button class="del-link ed-cancel" type="button">cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderSections(){
   const listEl = document.getElementById("sectionList");
   const countSub = document.getElementById("countSub");
@@ -1100,23 +1352,74 @@ function renderSections(){
   listEl.innerHTML = Object.entries(byMateria).map(([materia, secs])=>`
     <div class="subj-group">
       <div class="subj-head"><span>${materia}</span><span class="meta">${secs.length} sección(es)</span></div>
-      ${secs.map(s=>`
+      ${secs.map(s=>{
+        if(s.id === editingSectionId){
+          return renderEditPanel(editDraft);
+        }
+        return `
         <div class="sec-row">
           <div>
             ${s.seccion?`<span class="tag">${s.seccion}</span>`:''}
             ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
-            <span class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.aula?` (${b.aula})`:''}`).join(' · ')}</span>
-            ${s.profesor?`<div class="meta">${s.profesor}</div>`:''}
+            <span class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.aula?` (${b.aula})`:''}${b.virtual?' · Virtual':''}${b.laboratorio?' · Lab':''}`).join(' · ')}</span>
+            ${s.profesor?`<div class="meta">${s.profesor}</div>`:'<div class="meta" style="font-style:italic;">Sin profesor asignado</div>'}
           </div>
-          <button class="del-link" data-id="${s.id}">quitar</button>
+          <div>
+            <button class="edit-link" data-id="${s.id}">editar</button>
+            <button class="del-link" data-id="${s.id}">quitar</button>
+          </div>
         </div>
-      `).join('')}
+      `;}).join('')}
     </div>
   `).join('');
 
   listEl.querySelectorAll(".del-link").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       sections = sections.filter(s=>s.id!==btn.dataset.id);
+      saveToStorage();
+      renderSections();
+    });
+  });
+  listEl.querySelectorAll(".edit-link").forEach(btn=>{
+    btn.addEventListener("click", ()=> startEdit(btn.dataset.id));
+  });
+  listEl.querySelectorAll(".ed-cancel").forEach(btn=>{
+    btn.addEventListener("click", cancelEdit);
+  });
+  listEl.querySelectorAll(".ed-add-block").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      const panel = e.target.closest(".edit-panel");
+      syncEditDraftFromDOM(panel);
+      editDraft.blocks.push({ dia:"Lunes", inicio:"07:00", fin:"07:45", aula:"", laboratorio:false, virtual:false, alternativaPresencial:null });
+      renderSections();
+    });
+  });
+  listEl.querySelectorAll(".ed-del-block").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      const panel = e.target.closest(".edit-panel");
+      syncEditDraftFromDOM(panel);
+      const row = e.target.closest(".ed-block-row");
+      const idx = [...panel.querySelectorAll(".ed-block-row")].indexOf(row);
+      editDraft.blocks.splice(idx,1);
+      renderSections();
+    });
+  });
+  listEl.querySelectorAll(".ed-virtual").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const row = cb.closest(".ed-block-row");
+      row.querySelector(".alt-presencial-wrap").classList.toggle("show", cb.checked);
+    });
+  });
+  listEl.querySelectorAll(".ed-save").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      const panel = e.target.closest(".edit-panel");
+      syncEditDraftFromDOM(panel);
+      if(!editDraft.materia){ alert("Ponle un nombre a la materia."); return; }
+      if(editDraft.blocks.length===0){ alert("La sección necesita al menos un bloque de día/hora."); return; }
+      const idx = sections.findIndex(x=>x.id===editingSectionId);
+      if(idx>=0){ sections[idx] = { ...editDraft, id: editingSectionId }; }
+      editingSectionId = null;
+      editDraft = null;
       saveToStorage();
       renderSections();
     });
@@ -1244,6 +1547,8 @@ function colorFor(materia, list){
   return PALETTE[idx];
 }
 
+const VIRTUAL_COLOR = "#CDEEFB"; // celeste, distinto de la paleta normal de materias
+
 function renderComboGrid(combo){
   const materiasInCombo = combo.map(s=>s.materia);
   // build hour rows from all blocks (unique start-end)
@@ -1256,9 +1561,11 @@ function renderComboGrid(combo){
     DAYS.forEach(d=>{
       const b = allBlocks.find(x=>x.dia===d && x.inicio===ini && x.fin===fin);
       if(b){
-        html += `<td><div class="cell-block" style="background:${colorFor(b.materia, materiasInCombo)}">
-          <div class="m">${b.materia}</div>
-          ${b.aula?`<div class="a">${b.aula}</div>`:''}
+        const bg = b.virtual ? VIRTUAL_COLOR : colorFor(b.materia, materiasInCombo);
+        html += `<td><div class="cell-block" style="background:${bg}">
+          <div class="m">${b.materia}${b.laboratorio?' (Lab)':''}</div>
+          ${b.aula?`<div class="a">${b.aula}${b.virtual?' · Virtual':''}</div>`:''}
+          ${b.alternativaPresencial?`<div class="a" style="font-style:italic;">Alt. presencial: ${b.alternativaPresencial.dia.slice(0,3)} ${b.alternativaPresencial.inicio}${b.alternativaPresencial.aula?` (${b.alternativaPresencial.aula})`:''}</div>`:''}
         </div></td>`;
       } else {
         html += `<td></td>`;
@@ -1273,7 +1580,7 @@ function renderComboList(combo){
   return `<div style="margin-top:16px; display:flex; flex-direction:column; gap:6px;">
     ${combo.map(s=>`<div class="sec-row" style="border:1px solid var(--border); border-radius:8px;">
       <div><b>${s.materia}</b> ${s.seccion?`<span class="tag">${s.seccion}</span>`:''} ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
-      <div class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}`).join(' · ')}</div></div>
+      <div class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.virtual?' (Virtual)':''}${b.laboratorio?' (Lab)':''}`).join(' · ')}</div></div>
     </div>`).join('')}
   </div>`;
 }

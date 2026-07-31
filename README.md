@@ -29,10 +29,19 @@ En ambos casos, el sitio reconoce la estructura típica del horario de la UTP (h
 
 Todo el procesamiento ocurre en tu propio navegador: la lectura del documento, la comparación de horarios y el guardado de tus secciones. Nada se sube a un servidor externo ni se comparte con nadie — el sitio no tiene backend. Tus secciones quedan guardadas localmente en el navegador que usaste, así que seguirán ahí si recargas la página, pero no se sincronizan entre dispositivos distintos.
 
+## Detección de niveles, laboratorios y clases virtuales
+
+- Si dos secciones comparten el nombre de la materia pero distinto nivel (ej. "Cálculo (II)" vs "Cálculo (III)"), el numeral romano se conserva como parte del nombre para que no se confundan ni se fusionen en una sola.
+- Las clases marcadas como laboratorio (ej. "(L)") se identifican como tales.
+- Las clases virtuales (aulas con el formato `X-NXX`, donde la `N` indica modalidad virtual) se resaltan en color celeste en la cuadrícula semanal. Si una clase virtual también se ofrece de forma presencial, se puede agregar esa alternativa como nota informativa junto al bloque.
+
+## Edición
+
+Tanto las secciones cargadas manualmente como las detectadas automáticamente se pueden editar después de guardarlas — materia, sección, código, profesor, y cada bloque de día/hora/aula — sin tener que borrar y volver a cargar todo desde cero.
+
 ## Estado del proyecto
 
 Este es un prototipo en desarrollo activo. Algunas ideas para más adelante:
 
-- Editar una sección ya guardada sin tener que borrarla y volver a cargarla.
 - Ordenar las combinaciones sin choque por criterios como menos días en el campus o menos huecos entre clases.
 - Exportar el horario elegido para importarlo a un calendario (Google Calendar, etc.).
