@@ -33,11 +33,18 @@ Todo el procesamiento ocurre en tu propio navegador: la lectura del documento, l
 
 - Si dos secciones comparten el nombre de la materia pero distinto nivel (ej. "Cálculo (II)" vs "Cálculo (III)"), el numeral romano se conserva como parte del nombre para que no se confundan ni se fusionen en una sola.
 - Las clases marcadas como laboratorio (ej. "(L)") se identifican como tales.
-- Las clases virtuales (aulas con el formato `X-NXX`, donde la `N` indica modalidad virtual) se resaltan en color celeste en la cuadrícula semanal. Si una clase virtual también se ofrece de forma presencial, se puede agregar esa alternativa como nota informativa junto al bloque.
+- Las clases virtuales (aulas con el formato `X-NXX`, donde la `N` indica modalidad virtual) se resaltan en color celeste en la cuadrícula semanal.
+- **Una clase virtual no bloquea el horario real**: como el estudiante puede tomarla desde cualquier lugar, por defecto se permite que otra clase presencial ocupe el mismo horario sin que cuente como choque. Cuando esto pasa, la clase presencial se muestra a color completo ocupando toda la celda, con una nota informativa ("También virtual aquí: ...") para que quede claro que ahí también hay una obligación virtual. Este comportamiento se puede desactivar con un checkbox si prefieres que las clases virtuales bloqueen su horario como cualquier otra.
+- Si una clase virtual también se ofrece de forma presencial en otro horario, se puede agregar esa alternativa como nota informativa junto al bloque.
+- Se detecta el "grupo" al que pertenece el documento (ej. "GRUPO 1SF251" en el encabezado del horario oficial), útil para saber de qué documento vino cada sección cuando combinas materias de varios horarios distintos.
 
 ## Edición
 
 Tanto las secciones cargadas manualmente como las detectadas automáticamente se pueden editar después de guardarlas — materia, sección, código, profesor, y cada bloque de día/hora/aula — sin tener que borrar y volver a cargar todo desde cero.
+
+## Impresión y formato de horas
+
+Las horas se muestran en formato de 12 horas (ej. "7:00 AM", "1:30 PM") en toda la interfaz. Desde la pantalla de combinaciones, el botón "Imprimir este horario" abre el diálogo de impresión mostrando solo la cuadrícula semanal, sin el resto de la interfaz.
 
 ## Estado del proyecto
 

@@ -163,7 +163,7 @@
   .review-item{
     border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; background:#FBFCFE;
   }
-  .review-item .rev-head{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px;}
+  .review-item .rev-head{display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; margin-bottom:10px;}
   .review-item .rev-head .rv-materia{grid-column:1/-1;}
   .review-item .rev-head input{
     padding:8px 9px; border:1px solid var(--border); border-radius:7px; font-size:13px; font-family:'Inter'; background:#fff;
@@ -215,6 +215,12 @@
     margin-top:20px; width:100%; background:var(--navy); color:#fff; border:none; padding:14px;
     border-radius:11px; font-weight:700; font-size:14.5px; cursor:pointer;
   }
+
+  .print-btn{
+    width:100%; background:var(--surface); color:var(--navy); border:1.5px solid var(--navy); padding:10px;
+    border-radius:9px; font-weight:700; font-size:13.5px; cursor:pointer; margin-bottom:14px;
+  }
+  .print-btn:hover{ background:#F7F9FC; }
 
   /* results */
   .combo-nav{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
@@ -282,6 +288,18 @@
     .combo-nav{ flex-wrap:wrap; gap:8px; }
     .combo-pill{ order:3; width:100%; text-align:center; }
   }
+
+  /* ---------- Impresión: solo se imprime la cuadrícula del horario elegido ---------- */
+  @media print{
+    body{ background:#fff; }
+    header.top, .stepper, .note, #panel1, #panel2{ display:none !important; }
+    .wrap{ margin:0; padding:0; max-width:100%; }
+    .combo-nav, .print-btn{ display:none !important; }
+    #panel3 .card{ box-shadow:none; border:none; padding:0; }
+    table.grid-table{ min-width:0; width:100%; font-size:11px; }
+    .table-scroll{ overflow:visible; }
+    .cell-block{ break-inside:avoid; }
+  }
 </style>
 </head>
 <body>
@@ -341,8 +359,8 @@
           <input id="fMateria" placeholder="Ej. QUÍMICA I">
         </div>
         <div class="field">
-          <label>Sección / grupo (opcional)</label>
-          <input id="fSeccion" placeholder="Ej. A, 1EG1045">
+          <label>Sección (opcional)</label>
+          <input id="fSeccion" placeholder="Ej. A">
         </div>
         <div class="field">
           <label>Profesor (opcional)</label>
@@ -351,6 +369,10 @@
         <div class="field">
           <label>Código horario (opcional)</label>
           <input id="fCodigo" placeholder="Ej. 5996">
+        </div>
+        <div class="field">
+          <label>Grupo del documento (opcional)</label>
+          <input id="fGrupo" placeholder="Ej. 1EG1045">
         </div>
       </div>
 
@@ -389,6 +411,10 @@
         <div class="chip" data-turno="tarde">Tarde (12:00–18:00)</div>
         <div class="chip" data-turno="noche">Noche (después de 18:00)</div>
       </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px; font-size:13px; color:var(--steel); cursor:pointer;">
+        <input type="checkbox" id="allowVirtualOverlapChk" checked style="width:16px; height:16px; accent-color:var(--navy); cursor:pointer;">
+        Permitir que otra clase presencial ocupe el mismo horario que una clase virtual (una clase virtual no bloquea el espacio real)
+      </label>
       <button class="gen-btn" id="genBtn">Generar combinaciones →</button>
     </div>
   </section>
@@ -411,6 +437,7 @@ const STORAGE_KEY = "horarioweb-secciones";
 let sections = []; // {id, materia, seccion, profesor, codigo, blocks:[{dia,inicio,fin,aula}]}
 let selectedMaterias = new Set();
 let turno = "cualquiera";
+let allowVirtualOverlap = true;
 let combos = [];
 let comboIdx = 0;
 
@@ -453,6 +480,19 @@ function goToStep(n){
 
 // ---------- Lectura de archivo: imagen (OCR) o PDF (texto real) ----------
 let lastWords = [];
+let lastRawText = '';
+
+// El horario oficial suele indicar en su encabezado a qué grupo pertenece (ej. "GRUPO 1SF251").
+// Esto es útil cuando el usuario combina materias de varios documentos/grupos distintos, para
+// saber de dónde vino cada sección.
+function extractGrupoDocumento(rawText){
+  if(!rawText) return '';
+  // El código de grupo real siempre trae al menos un dígito (ej. "1SF251", "1EG1045"); sin ese
+  // requisito, frases como "sin grupo mencionado" se detectaban por error como si "MENCIONADO"
+  // fuera un código de grupo.
+  const m = rawText.match(/GRUPO[:\s]+(?=[A-Z0-9\-]*\d)([A-Z0-9\-]{3,15})/i);
+  return m ? m[1].toUpperCase() : '';
+}
 
 // Un item de texto de pdf.js puede traer varias palabras juntas ("LUNES MARTES...").
 // Las separamos en palabras individuales repartiendo el ancho proporcionalmente,
@@ -520,6 +560,7 @@ document.getElementById("imgInput").addEventListener("change", async (e)=>{
       box.value = text;
       box.style.display = "block";
       lastWords = words;
+      lastRawText = text;
       if(lastWords.length>0){
         status.textContent = "Listo. Este PDF trae texto real (no es una imagen escaneada), así que la detección debería ser más confiable.";
         detectBtn.style.display = "inline-block";
@@ -540,6 +581,7 @@ document.getElementById("imgInput").addEventListener("change", async (e)=>{
     box.value = result.data.text;
     box.style.display = "block";
     lastWords = (result.data.words || []).filter(w => w.text && w.text.trim().length>0);
+    lastRawText = result.data.text;
     if(lastWords.length>0){
       status.textContent = "Listo. Puedes revisar el texto, o intentar la detección automática de la tabla.";
       detectBtn.style.display = "inline-block";
@@ -562,8 +604,10 @@ document.getElementById("detectBtn").addEventListener("click", ()=>{
   }
   const legend = extractLegend(lastWords);
   const filledCount = applyLegendToSections(detected, legend);
+  const grupoDocumento = extractGrupoDocumento(lastRawText);
+  if(grupoDocumento){ detected.forEach(s=>{ s.grupoDocumento = grupoDocumento; }); }
   debugBox.style.display = "none";
-  showReview(detected, filledCount);
+  showReview(detected, filledCount, grupoDocumento);
 });
 
 // ---------- Tabla de leyenda: ASIGNATURA / CODASIG / CODHORA / PROFESOR / CORREO ----------
@@ -1012,6 +1056,7 @@ function syncReviewFromDOM(){
     s.seccion = item.querySelector(".rv-seccion").value.trim();
     s.codigo = item.querySelector(".rv-codigo").value.trim();
     s.profesor = item.querySelector(".rv-profesor").value.trim();
+    s.grupoDocumento = item.querySelector(".rv-grupo").value.trim();
     const blockRows = item.querySelectorAll(".rev-block-row");
     s.blocks = [...blockRows].map(r=>{
       const virtual = r.querySelector(".rv-virtual").checked;
@@ -1038,13 +1083,16 @@ function syncReviewFromDOM(){
   });
 }
 
-function showReview(detected, filledCount){
+function showReview(detected, filledCount, grupoDocumento){
   reviewData = detected;
   document.getElementById("reviewCard").style.display = "block";
   document.getElementById("acceptReviewBtn").style.display = "inline-block";
   let msg = `Se detectaron ${detected.length} sección(es). Revisa nombres, días, horas y aulas antes de agregarlas — el OCR puede equivocarse.`;
   if(filledCount>0){
     msg += ` Se autocompletaron profesor/código en ${filledCount} sección(es) usando la tabla de asignaturas del documento.`;
+  }
+  if(grupoDocumento){
+    msg += ` Se detectó que este documento pertenece al grupo ${grupoDocumento}.`;
   }
   document.getElementById("reviewSub").textContent = msg;
   renderReview();
@@ -1067,6 +1115,7 @@ function renderReview(){
         <input class="rv-seccion" value="${s.seccion}" placeholder="Sección">
         <input class="rv-codigo" value="${s.codigo}" placeholder="Código (opcional)">
         <input class="rv-profesor" value="${s.profesor||''}" placeholder="Profesor (opcional)">
+        <input class="rv-grupo" value="${s.grupoDocumento||''}" placeholder="Grupo del documento (opcional)">
       </div>
       ${s.blocks.map((b, bi)=>{
         const alt = b.alternativaPresencial || {};
@@ -1146,6 +1195,7 @@ document.getElementById("acceptReviewBtn").addEventListener("click", ()=>{
       seccion: s.seccion,
       profesor: s.profesor||'',
       codigo: s.codigo||'',
+      grupoDocumento: s.grupoDocumento||'',
       blocks: s.blocks
     });
   });
@@ -1235,11 +1285,12 @@ document.getElementById("saveSectionBtn").addEventListener("click", ()=>{
     seccion: document.getElementById("fSeccion").value.trim(),
     profesor: document.getElementById("fProfesor").value.trim(),
     codigo: document.getElementById("fCodigo").value.trim(),
+    grupoDocumento: document.getElementById("fGrupo").value.trim(),
     blocks
   });
 
   // reset form
-  ["fMateria","fSeccion","fProfesor","fCodigo"].forEach(id=>document.getElementById(id).value="");
+  ["fMateria","fSeccion","fProfesor","fCodigo","fGrupo"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("blocksList").innerHTML = "";
   addBlockRow();
 
@@ -1268,6 +1319,7 @@ function syncEditDraftFromDOM(panelEl){
   editDraft.seccion = panelEl.querySelector(".ed-seccion").value.trim();
   editDraft.codigo = panelEl.querySelector(".ed-codigo").value.trim();
   editDraft.profesor = panelEl.querySelector(".ed-profesor").value.trim();
+  editDraft.grupoDocumento = panelEl.querySelector(".ed-grupo").value.trim();
   const rows = panelEl.querySelectorAll(".ed-block-row");
   editDraft.blocks = [...rows].map(r=>{
     const virtual = r.querySelector(".ed-virtual").checked;
@@ -1301,6 +1353,7 @@ function renderEditPanel(s){
         <input class="ed-seccion" value="${s.seccion||''}" placeholder="Sección">
         <input class="ed-codigo" value="${s.codigo||''}" placeholder="Código (opcional)">
         <input class="ed-profesor" value="${s.profesor||''}" placeholder="Profesor (opcional)">
+        <input class="ed-grupo" value="${s.grupoDocumento||''}" placeholder="Grupo del documento (opcional)">
       </div>
       ${s.blocks.map((b)=>{
         const alt = b.alternativaPresencial || {};
@@ -1361,7 +1414,8 @@ function renderSections(){
           <div>
             ${s.seccion?`<span class="tag">${s.seccion}</span>`:''}
             ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
-            <span class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.aula?` (${b.aula})`:''}${b.virtual?' · Virtual':''}${b.laboratorio?' · Lab':''}`).join(' · ')}</span>
+            ${s.grupoDocumento?`<span class="tag">Grupo ${s.grupoDocumento}</span>`:''}
+            <span class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${formatTime12(b.inicio)}-${formatTime12(b.fin)}${b.aula?` (${b.aula})`:''}${b.virtual?' · Virtual':''}${b.laboratorio?' · Lab':''}`).join(' · ')}</span>
             ${s.profesor?`<div class="meta">${s.profesor}</div>`:'<div class="meta" style="font-style:italic;">Sin profesor asignado</div>'}
           </div>
           <div>
@@ -1465,9 +1519,29 @@ document.getElementById("turnoChips").addEventListener("click",(e)=>{
 
 // ---------- Time helpers ----------
 function toMin(t){ const [h,m]=t.split(":").map(Number); return h*60+m; }
+
+// Convierte "HH:MM" (24h, formato interno) a "H:MM AM/PM" para mostrar al usuario.
+// El formato de 24h se conserva internamente para ordenar y comparar horarios sin ambigüedad;
+// esto solo afecta cómo se muestra el texto.
+function formatTime12(t){
+  if(!t) return '';
+  const [hStr, mStr] = t.split(':');
+  let h = Number(hStr);
+  const period = h >= 12 ? 'PM' : 'AM';
+  if(h === 0) h = 12; else if(h > 12) h -= 12;
+  return `${h}:${mStr} ${period}`;
+}
+
+// Una clase virtual no ocupa un espacio físico real, así que por defecto no genera choque
+// con una clase presencial en el mismo horario — el estudiante puede tomar la virtual desde
+// cualquier lugar mientras asiste a la presencial. Esto se puede desactivar con el checkbox
+// "Permitir que otra clase presencial ocupe el mismo horario que una clase virtual".
 function overlap(b1,b2){
   if(b1.dia!==b2.dia) return false;
-  return toMin(b1.inicio) < toMin(b2.fin) && toMin(b2.inicio) < toMin(b1.fin);
+  const timeOverlap = toMin(b1.inicio) < toMin(b2.fin) && toMin(b2.inicio) < toMin(b1.fin);
+  if(!timeOverlap) return false;
+  if(allowVirtualOverlap && (b1.virtual || b2.virtual)) return false;
+  return true;
 }
 function inTurno(block, turno){
   if(turno==="cualquiera") return true;
@@ -1482,6 +1556,7 @@ function inTurno(block, turno){
 document.getElementById("genBtn").addEventListener("click", ()=>{
   const materias = [...selectedMaterias];
   if(materias.length===0){ alert("Marca al menos una materia."); return; }
+  allowVirtualOverlap = document.getElementById("allowVirtualOverlapChk").checked;
 
   const options = materias.map(m=>{
     return sections.filter(s=> s.materia===m && s.blocks.every(b=>inTurno(b,turno)) );
@@ -1532,11 +1607,13 @@ function renderResults(missing){
       <span class="combo-pill">Opción ${comboIdx+1} de ${combos.length} sin choques</span>
       <button id="nextCombo">›</button>
     </div>
+    <button class="print-btn" id="printComboBtn" type="button">🖨️ Imprimir este horario</button>
   `;
   document.getElementById("prevCombo").disabled = comboIdx===0;
   document.getElementById("nextCombo").disabled = comboIdx===combos.length-1;
   document.getElementById("prevCombo").addEventListener("click", ()=>{ comboIdx--; renderResults(); });
   document.getElementById("nextCombo").addEventListener("click", ()=>{ comboIdx++; renderResults(); });
+  document.getElementById("printComboBtn").addEventListener("click", ()=> window.print());
 
   body.innerHTML = renderComboGrid(combos[comboIdx]) + renderComboList(combos[comboIdx]);
 }
@@ -1557,15 +1634,22 @@ function renderComboGrid(combo){
   let html = `<div class="table-scroll"><table class="grid-table"><thead><tr><th>Hora</th>${DAYS.map(d=>`<th>${d}</th>`).join('')}</tr></thead><tbody>`;
   hourSet.forEach(h=>{
     const [ini,fin] = h.split("-");
-    html += `<tr><td class="hourcol">${ini}<br>${fin}</td>`;
+    html += `<tr><td class="hourcol">${formatTime12(ini)}<br>${formatTime12(fin)}</td>`;
     DAYS.forEach(d=>{
-      const b = allBlocks.find(x=>x.dia===d && x.inicio===ini && x.fin===fin);
-      if(b){
-        const bg = b.virtual ? VIRTUAL_COLOR : colorFor(b.materia, materiasInCombo);
-        html += `<td><div class="cell-block" style="background:${bg}">
-          <div class="m">${b.materia}${b.laboratorio?' (Lab)':''}</div>
-          ${b.aula?`<div class="a">${b.aula}${b.virtual?' · Virtual':''}</div>`:''}
-          ${b.alternativaPresencial?`<div class="a" style="font-style:italic;">Alt. presencial: ${b.alternativaPresencial.dia.slice(0,3)} ${b.alternativaPresencial.inicio}${b.alternativaPresencial.aula?` (${b.alternativaPresencial.aula})`:''}</div>`:''}
+      // Puede haber más de un bloque en la misma casilla exacta cuando una clase virtual
+      // y una presencial ocupan el mismo horario a propósito (superposición permitida).
+      const matches = allBlocks.filter(x=>x.dia===d && x.inicio===ini && x.fin===fin);
+      if(matches.length){
+        const presencial = matches.find(b=>!b.virtual);
+        const virtualExtra = matches.find(b=>b.virtual);
+        const primary = presencial || virtualExtra; // si solo hay virtual, esa es la que se muestra
+        const bg = primary.virtual ? VIRTUAL_COLOR : colorFor(primary.materia, materiasInCombo);
+        const overlaySameSlot = presencial && virtualExtra; // ambas coexisten en este mismo bloque
+        html += `<td><div class="cell-block" style="background:${bg}; height:100%; display:flex; flex-direction:column; justify-content:center; box-sizing:border-box;">
+          <div class="m">${primary.materia}${primary.laboratorio?' (Lab)':''}</div>
+          ${primary.aula?`<div class="a">${primary.aula}${primary.virtual?' · Virtual':''}</div>`:''}
+          ${overlaySameSlot?`<div class="a" style="font-style:italic; color:#2f6690;">También virtual aquí: ${virtualExtra.materia}</div>`:''}
+          ${primary.alternativaPresencial?`<div class="a" style="font-style:italic;">Alt. presencial: ${primary.alternativaPresencial.dia.slice(0,3)} ${formatTime12(primary.alternativaPresencial.inicio)}${primary.alternativaPresencial.aula?` (${primary.alternativaPresencial.aula})`:''}</div>`:''}
         </div></td>`;
       } else {
         html += `<td></td>`;
@@ -1580,7 +1664,7 @@ function renderComboList(combo){
   return `<div style="margin-top:16px; display:flex; flex-direction:column; gap:6px;">
     ${combo.map(s=>`<div class="sec-row" style="border:1px solid var(--border); border-radius:8px;">
       <div><b>${s.materia}</b> ${s.seccion?`<span class="tag">${s.seccion}</span>`:''} ${s.codigo?`<span class="tag">#${s.codigo}</span>`:''}
-      <div class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${b.inicio}-${b.fin}${b.virtual?' (Virtual)':''}${b.laboratorio?' (Lab)':''}`).join(' · ')}</div></div>
+      <div class="meta">${s.blocks.map(b=>`${b.dia.slice(0,3)} ${formatTime12(b.inicio)}-${formatTime12(b.fin)}${b.virtual?' (Virtual)':''}${b.laboratorio?' (Lab)':''}`).join(' · ')}</div></div>
     </div>`).join('')}
   </div>`;
 }
